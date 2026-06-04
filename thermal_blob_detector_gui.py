@@ -16,7 +16,7 @@ Place this file in the same folder as:
 Then run:
     python thermal_blob_detector_gui.py
 
-By default, the OpenCV preview window is enabled.
+By default, the OpenCV preview window is enabled. Parameter tabs include an explanation column.
 """
 
 from __future__ import annotations
@@ -40,48 +40,49 @@ APP_TITLE = "Thermal Bat Blob Detector - Parameter GUI"
 SCRIPT_DEFAULT_NAME = "thermal_blob_detector_mvp_v3_valid_tracks.py"
 
 
-NUMERIC_PARAMS: List[Tuple[str, str, str, str, str]] = [
-    # key, CLI flag, type, default, label
-    ("max_frames", "--max-frames", "int", "0", "Max frames, 0 = full video"),
-    ("threshold", "--threshold", "float", "18.0", "Brightness threshold"),
-    ("motion_threshold", "--motion-threshold", "float", "5.0", "Motion threshold"),
+NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
+    # key, CLI flag, type, default, label, explanation
+    ("max_frames", "--max-frames", "int", "0", "Max frames, 0 = full video", "Limits processing for quick tests. Use 300-1000 while tuning; 0 processes the full video."),
 
-    ("min_area", "--min-area", "int", "2", "Min blob area"),
-    ("max_area", "--max-area", "int", "1200", "Max blob area"),
-    ("min_width", "--min-width", "int", "1", "Min blob width"),
-    ("min_height", "--min-height", "int", "1", "Min blob height"),
-    ("max_width", "--max-width", "int", "80", "Max blob width"),
-    ("max_height", "--max-height", "int", "80", "Max blob height"),
-    ("morph_open", "--morph-open", "int", "1", "Morph open"),
-    ("morph_dilate", "--morph-dilate", "int", "1", "Morph dilate"),
+    ("threshold", "--threshold", "float", "18.0", "Brightness threshold", "Minimum brightness above background. Increase to remove weak noise; decrease to catch faint bats."),
+    ("motion_threshold", "--motion-threshold", "float", "5.0", "Motion threshold", "Used only with motion gate. Increase to require stronger frame-to-frame movement."),
 
-    ("max_link_distance", "--max-link-distance", "float", "90.0", "Max link distance"),
-    ("max_gap_frames", "--max-gap-frames", "int", "4", "Max gap frames"),
-    ("min_track_lifetime", "--min-track-lifetime", "int", "3", "Min track lifetime"),
+    ("min_area", "--min-area", "int", "2", "Min blob area", "Smallest accepted blob in pixels. Increase to remove tiny hot pixels/noise."),
+    ("max_area", "--max-area", "int", "1200", "Max blob area", "Largest accepted blob. Increase if close/bright bats are rejected; decrease to remove large artefacts."),
+    ("min_width", "--min-width", "int", "1", "Min blob width", "Minimum blob width in pixels. Usually keep at 1 for small thermal targets."),
+    ("min_height", "--min-height", "int", "1", "Min blob height", "Minimum blob height in pixels. Usually keep at 1 for small thermal targets."),
+    ("max_width", "--max-width", "int", "80", "Max blob width", "Rejects wide blobs. Increase if bats become streaks; decrease to remove broad artefacts."),
+    ("max_height", "--max-height", "int", "80", "Max blob height", "Rejects tall blobs. Increase if close bats are tall; decrease to remove large artefacts."),
+    ("morph_open", "--morph-open", "int", "1", "Morph open", "Mask cleanup. Higher removes small noise but may delete very tiny/faint bats."),
+    ("morph_dilate", "--morph-dilate", "int", "1", "Morph dilate", "Expands blobs slightly. Higher can connect broken pixels but may merge nearby objects."),
 
-    ("min_track_displacement", "--min-track-displacement", "float", "12.0", "Min track displacement"),
-    ("min_track_path_length", "--min-track-path-length", "float", "18.0", "Min track path length"),
-    ("min_mean_speed", "--min-mean-speed", "float", "0.8", "Min mean speed"),
-    ("max_mean_speed", "--max-mean-speed", "float", "120.0", "Max mean speed"),
-    ("min_directionality", "--min-directionality", "float", "0.15", "Min directionality"),
-    ("max_detections_per_frame", "--max-detections-per-frame", "int", "40", "Max detections/frame, 0 = off"),
+    ("max_link_distance", "--max-link-distance", "float", "90.0", "Max link distance", "Maximum pixel jump between frames for the same track. Increase for fast/near bats; decrease to avoid wrong linking."),
+    ("max_gap_frames", "--max-gap-frames", "int", "4", "Max gap frames", "How many missing frames a track can survive. Increase if bats blink/disappear briefly."),
+    ("min_track_lifetime", "--min-track-lifetime", "int", "3", "Min track lifetime", "Minimum detections before a track is confirmed. Increase to remove flashes; decrease to keep short fast passes."),
 
-    ("background_frames", "--background-frames", "int", "200", "Background frames"),
-    ("background_stride", "--background-stride", "int", "10", "Background stride"),
-    ("background_percentile", "--background-percentile", "float", "50.0", "Background percentile"),
+    ("min_track_displacement", "--min-track-displacement", "float", "12.0", "Min track displacement", "Minimum start-to-end movement. Increase to remove stationary artefacts; decrease if valid short tracks vanish."),
+    ("min_track_path_length", "--min-track-path-length", "float", "18.0", "Min track path length", "Minimum total travelled path. Increase to remove small jitter; decrease for short visible passes."),
+    ("min_mean_speed", "--min-mean-speed", "float", "0.8", "Min mean speed", "Minimum average speed in px/frame. Increase to remove slow drift/hot pixels."),
+    ("max_mean_speed", "--max-mean-speed", "float", "120.0", "Max mean speed", "Maximum average speed in px/frame. Decrease if tracks jump unrealistically between artefacts."),
+    ("min_directionality", "--min-directionality", "float", "0.15", "Min directionality", "Straightness ratio: net movement / total path. Low allows chaotic bat flight; higher removes jittering noise."),
+    ("max_detections_per_frame", "--max-detections-per-frame", "int", "40", "Max detections/frame, 0 = off", "Rejects overloaded frames, e.g. camera calibration/noise bursts. Set 0 to disable."),
 
-    ("trail_length", "--trail-length", "int", "0", "Trail length, 0 = full track"),
+    ("background_frames", "--background-frames", "int", "200", "Background frames", "Number of sampled frames used to build the static background. More = stabler but slower start."),
+    ("background_stride", "--background-stride", "int", "10", "Background stride", "Frame step between samples for background building. Higher samples a longer time range."),
+    ("background_percentile", "--background-percentile", "float", "50.0", "Background percentile", "50 = median background. Lower/higher can help with unusual thermal backgrounds."),
+
+    ("trail_length", "--trail-length", "int", "0", "Trail length, 0 = full track", "Length of drawn trail. 0 draws full history; small values draw only a moving tail."),
 ]
 
-BOOLEAN_PARAMS: List[Tuple[str, str, str, bool]] = [
-    # key, CLI flag, label, default
-    ("show", "--show", "Show OpenCV preview window", True),
-    ("motion_gate", "--motion-gate", "Use motion gate", False),
-    ("no_prediction", "--no-prediction", "Disable prediction", False),
-    ("draw_all_tracks", "--draw-all-tracks", "Draw all tracks, including invalid", False),
-    ("hide_inactive_tracks", "--hide-inactive-tracks", "Hide inactive tracks", False),
-    ("hide_roi_rectangle", "--hide-roi-rectangle", "Hide ROI rectangle", False),
-    ("hide_exclude_zones", "--hide-exclude-zones", "Hide exclude-zone rectangles", False),
+BOOLEAN_PARAMS: List[Tuple[str, str, str, bool, str]] = [
+    # key, CLI flag, label, default, explanation
+    ("show", "--show", "Show OpenCV preview window", True, "Opens live preview during processing. Useful while tuning parameters."),
+    ("motion_gate", "--motion-gate", "Use motion gate", False, "Requires both brightness above background and frame-to-frame movement. Can remove static artefacts but may lose faint bats."),
+    ("no_prediction", "--no-prediction", "Disable prediction", False, "Turns off simple velocity prediction in tracking. Usually keep unchecked."),
+    ("draw_all_tracks", "--draw-all-tracks", "Draw all tracks, including invalid", False, "Diagnostic mode. Shows tracks before artefact filtering."),
+    ("hide_inactive_tracks", "--hide-inactive-tracks", "Hide inactive tracks", False, "Draw only currently active tracks. Usually leave unchecked when reviewing full trajectories."),
+    ("hide_roi_rectangle", "--hide-roi-rectangle", "Hide ROI rectangle", False, "Hides the ROI rectangle overlay if ROI is used."),
+    ("hide_exclude_zones", "--hide-exclude-zones", "Hide exclude-zone rectangles", False, "Hides excluded-area rectangles on the preview/output video."),
 ]
 
 
@@ -89,8 +90,8 @@ class ThermalDetectorGUI(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("1160x820")
-        self.minsize(1050, 720)
+        self.geometry("1360x860")
+        self.minsize(1220, 760)
 
         self.process: Optional[subprocess.Popen[str]] = None
         self.reader_thread: Optional[threading.Thread] = None
@@ -114,10 +115,10 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["roi"] = tk.StringVar(value="")
         self.path_vars["exclude_zones"] = tk.StringVar(value="")
 
-        for key, _flag, _typ, default, _label in NUMERIC_PARAMS:
+        for key, _flag, _typ, default, _label, _explanation in NUMERIC_PARAMS:
             self.num_vars[key] = tk.StringVar(value=default)
 
-        for key, _flag, _label, default in BOOLEAN_PARAMS:
+        for key, _flag, _label, default, _explanation in BOOLEAN_PARAMS:
             self.bool_vars[key] = tk.BooleanVar(value=default)
 
         for var in list(self.path_vars.values()) + list(self.num_vars.values()):
@@ -245,16 +246,29 @@ class ThermalDetectorGUI(tk.Tk):
         ttk.Button(presets, text="Full video", command=lambda: self.num_vars["max_frames"].set("0")).pack(fill=tk.X, pady=2)
 
     def _params_grid(self, parent: ttk.Frame, keys: List[str]) -> None:
-        meta = {key: (flag, typ, default, label) for key, flag, typ, default, label in NUMERIC_PARAMS}
+        meta = {key: (flag, typ, default, label, explanation) for key, flag, typ, default, label, explanation in NUMERIC_PARAMS}
 
-        for row, key in enumerate(keys):
-            _flag, typ, _default, label = meta[key]
-            ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=4)
-            entry = ttk.Entry(parent, textvariable=self.num_vars[key], width=16)
-            entry.grid(row=row, column=1, sticky="w", padx=4, pady=4)
-            ttk.Label(parent, text=typ).grid(row=row, column=2, sticky="w", padx=4, pady=4)
+        ttk.Label(parent, text="Parameter").grid(row=0, column=0, sticky="w", padx=4, pady=(0, 6))
+        ttk.Label(parent, text="Value").grid(row=0, column=1, sticky="w", padx=4, pady=(0, 6))
+        ttk.Label(parent, text="Type").grid(row=0, column=2, sticky="w", padx=4, pady=(0, 6))
+        ttk.Label(parent, text="Explanation").grid(row=0, column=3, sticky="w", padx=4, pady=(0, 6))
 
-        parent.columnconfigure(1, weight=1)
+        for row, key in enumerate(keys, start=1):
+            _flag, typ, _default, label, explanation = meta[key]
+            ttk.Label(parent, text=label).grid(row=row, column=0, sticky="nw", padx=4, pady=4)
+            entry = ttk.Entry(parent, textvariable=self.num_vars[key], width=14)
+            entry.grid(row=row, column=1, sticky="nw", padx=4, pady=4)
+            ttk.Label(parent, text=typ).grid(row=row, column=2, sticky="nw", padx=4, pady=4)
+
+            explanation_label = ttk.Label(
+                parent,
+                text=explanation,
+                wraplength=360,
+                justify=tk.LEFT,
+            )
+            explanation_label.grid(row=row, column=3, sticky="nw", padx=8, pady=4)
+
+        parent.columnconfigure(3, weight=1)
 
     def _build_mask_tab(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="ROI, optional, format: x,y,w,h").pack(anchor="w")
@@ -289,9 +303,22 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["exclude_zones"].trace_add("write", sync_from_var)
 
     def _build_flags_tab(self, parent: ttk.Frame) -> None:
-        for key, _flag, label, _default in BOOLEAN_PARAMS:
+        ttk.Label(parent, text="Option").grid(row=0, column=0, sticky="w", padx=4, pady=(0, 6))
+        ttk.Label(parent, text="Explanation").grid(row=0, column=1, sticky="w", padx=8, pady=(0, 6))
+
+        for row, (key, _flag, label, _default, explanation) in enumerate(BOOLEAN_PARAMS, start=1):
             cb = ttk.Checkbutton(parent, text=label, variable=self.bool_vars[key])
-            cb.pack(anchor="w", pady=3)
+            cb.grid(row=row, column=0, sticky="nw", padx=4, pady=4)
+
+            explanation_label = ttk.Label(
+                parent,
+                text=explanation,
+                wraplength=430,
+                justify=tk.LEFT,
+            )
+            explanation_label.grid(row=row, column=1, sticky="nw", padx=8, pady=4)
+
+        parent.columnconfigure(1, weight=1)
 
     def _build_command_and_log_section(self, parent: ttk.Frame) -> None:
         command_frame = ttk.LabelFrame(parent, text="Generated command", padding=6)
@@ -480,7 +507,7 @@ class ThermalDetectorGUI(tk.Tk):
 
         self._validate_numeric_params()
 
-        meta = {key: (flag, typ) for key, flag, typ, _default, _label in NUMERIC_PARAMS}
+        meta = {key: (flag, typ) for key, flag, typ, _default, _label, _explanation in NUMERIC_PARAMS}
         for key, var in self.num_vars.items():
             value = var.get().strip()
             if value == "":
@@ -488,7 +515,7 @@ class ThermalDetectorGUI(tk.Tk):
             flag, _typ = meta[key]
             cmd += [flag, value]
 
-        for key, flag, _label, _default in BOOLEAN_PARAMS:
+        for key, flag, _label, _default, _explanation in BOOLEAN_PARAMS:
             if self.bool_vars[key].get():
                 cmd.append(flag)
 
@@ -504,7 +531,7 @@ class ThermalDetectorGUI(tk.Tk):
         return cmd
 
     def _validate_numeric_params(self) -> None:
-        meta = {key: (typ, label) for key, _flag, typ, _default, label in NUMERIC_PARAMS}
+        meta = {key: (typ, label) for key, _flag, typ, _default, label, _explanation in NUMERIC_PARAMS}
 
         for key, var in self.num_vars.items():
             value = var.get().strip()

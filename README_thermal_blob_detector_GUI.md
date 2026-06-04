@@ -126,3 +126,16 @@ Show OpenCV preview window
 ```
 
 If the preview opens behind the Tkinter window, use Alt+Tab or click the OpenCV window. Press `q` or `Esc` in the preview window to stop preview processing.
+
+
+## Parameter explanation column
+
+This GUI version adds an **Explanation** column in the parameter tabs.
+
+It describes:
+- what each parameter controls,
+- when to increase it,
+- when to decrease it,
+- which settings are mainly diagnostic.
+
+The **Flags** tab also includes explanations for each checkbox.
