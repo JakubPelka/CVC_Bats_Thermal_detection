@@ -1,6 +1,6 @@
-# Thermal Bat Blob Detector GUI - drawn ROI and exclude zones
+# Thermal Bat Blob Detector GUI - drawn geometry
 
-This GUI version adds a drawing helper for rectangular ROI and exclude zones.
+This GUI version adds drawing helpers for rectangular detection ROI/exclude zones and track-based counting lines/AOIs.
 
 It is still only a launcher for:
 
@@ -50,11 +50,27 @@ Workflow:
 - **Reload frame**  
   Loads another frame index from the same video.
 
-## Notes
+## Counting lines and AOIs
 
-The detector currently supports rectangular ROI/exclude zones. This GUI follows that structure.
+In the **Counting / Statistics** tab, use:
 
-Polygon drawing can be added later, but it would require a detector-side change too, because the current CLI uses:
+```text
+Draw lines / AOIs
+```
+
+Workflow:
+
+1. Choose input video.
+2. Open **Counting / Statistics**.
+3. Choose a frame index.
+4. Click **Draw lines / AOIs**.
+5. Choose `Line`, `Polyline`, or `AOI polygon`.
+6. Click points on the video frame. For polylines and AOI polygons, press Enter to finish.
+7. Give the object a name and click **Save JSON**.
+
+The GUI saves the JSON path in **Counting config JSON**, so the run uses `--counting-config` automatically. Drawn lines count crossings by track movement; drawn AOI polygons count entry and exit events.
+
+Rectangular detection ROI/exclude zones still use:
 
 ```text
 --roi x,y,w,h

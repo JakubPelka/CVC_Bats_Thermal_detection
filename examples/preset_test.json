@@ -1,12 +1,21 @@
 {
   "paths": {
-    "script": "C:\\Users\\jakpel\\OneDrive - Kungsbacka kommun\\GitHub\\CVC_Bats_Thermal_detection\\src\\thermal_blob_detector_mvp_v3_valid_tracks.py",
-    "input": "C:/Users/jakpel/OneDrive - Kungsbacka kommun/GitHub/CVC_Bats_Thermal_detection/sample.mp4",
-    "output": "C:\\Users\\jakpel\\OneDrive - Kungsbacka kommun\\GitHub\\CVC_Bats_Thermal_detection\\sample_valid_tracks.mp4",
-    "csv": "C:\\Users\\jakpel\\OneDrive - Kungsbacka kommun\\GitHub\\CVC_Bats_Thermal_detection\\sample_track_points.csv",
-    "summary_csv": "C:\\Users\\jakpel\\OneDrive - Kungsbacka kommun\\GitHub\\CVC_Bats_Thermal_detection\\sample_track_summary.csv",
+    "script": "/home/jakub-pelka/GitHub/CVC_Bats_Thermal_detection/src/thermal_blob_detector_mvp_v3_valid_tracks.py",
+    "input": "/home/jakub-pelka/GitHub/CVC_Bats_Thermal_detection/examples/sample.mp4",
+    "output": "outputs/sample_valid_tracks.mp4",
+    "csv": "outputs/sample_track_points.csv",
+    "summary_csv": "outputs/sample_track_summary.csv",
+    "crossings_csv": "outputs/sample_crossings.csv",
+    "aoi_events_csv": "outputs/sample_aoi_events.csv",
+    "activity_csv": "outputs/sample_activity_by_time.csv",
+    "run_summary_json": "outputs/sample_run_summary.json",
+    "counting_config": "",
+    "counting_config_out": "",
+    "count_lines": "",
+    "count_aois": "",
     "roi": "",
-    "exclude_zones": ""
+    "exclude_zones": "",
+    "draw_frame": "0"
   },
   "numeric": {
     "max_frames": "0",
@@ -32,7 +41,11 @@
     "background_frames": "400",
     "background_stride": "20",
     "background_percentile": "50.0",
-    "trail_length": "0"
+    "trail_length": "0",
+    "activity_bin_seconds": "60.0",
+    "line_crossing_epsilon": "1.0",
+    "min_frames_between_same_line_crossing": "3",
+    "aoi_boundary_debounce_frames": "3"
   },
   "boolean": {
     "show": true,
@@ -41,6 +54,7 @@
     "draw_all_tracks": false,
     "hide_inactive_tracks": false,
     "hide_roi_rectangle": false,
-    "hide_exclude_zones": false
+    "hide_exclude_zones": false,
+    "count_all_tracks": false
   }
 }

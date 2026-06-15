@@ -23,13 +23,14 @@ class CountingLine:
     positive_label: str = "positive"
     negative_label: str = "negative"
     enabled: bool = True
+    points: Optional[List[Point]] = None
 
 
 @dataclass
 class CountingAoi:
     id: str
     name: str
-    coordinates: Rect
+    coordinates: Any
     enabled: bool = True
     type: str = "rectangle"
 
@@ -115,28 +116,9 @@ def load_counting_config(path: Path) -> CountingConfig:
 
 
 def counting_config_from_dict(raw: Dict[str, Any]) -> CountingConfig:
-    lines = [
-        CountingLine(
-            id=str(item["id"]),
-            name=str(item.get("name", item["id"])),
-            p1=_point(item["p1"]),
-            p2=_point(item["p2"]),
-            positive_label=str(item.get("positive_label", item.get("direction_labels", {}).get("positive", "positive"))),
-            negative_label=str(item.get("negative_label", item.get("direction_labels", {}).get("negative", "negative"))),
-            enabled=bool(item.get("enabled", True)),
-        )
-        for item in raw.get("lines", [])
-    ]
-    aois = [
-        CountingAoi(
-            id=str(item["id"]),
-            name=str(item.get("name", item["id"])),
-            coordinates=tuple(float(v) for v in item["coordinates"]),  # type: ignore[arg-type]
-            enabled=bool(item.get("enabled", True)),
-            type=str(item.get("type", "rectangle")),
-        )
-        for item in raw.get("aois", [])
-    ]
+    lines = [_line_from_dict(item, idx) for idx, item in enumerate(raw.get("lines", []), start=1)]
+    aoi_items = raw.get("aois", raw.get("zones", []))
+    aois = [_aoi_from_dict(item, idx) for idx, item in enumerate(aoi_items, start=1)]
     return CountingConfig(
         lines=lines,
         aois=aois,
@@ -186,6 +168,43 @@ def aoi_from_cli(value: str) -> CountingAoi:
         name=parts[1],
         coordinates=(float(parts[2]), float(parts[3]), float(parts[4]), float(parts[5])),
     )
+
+
+
+def counting_config_to_dict(cfg: CountingConfig) -> Dict[str, Any]:
+    return {
+        "lines": [
+            {
+                "id": line.id,
+                "name": line.name,
+                "p1": list(line.p1),
+                "p2": list(line.p2),
+                **({"pts": [list(point) for point in _line_points(line)]} if line.points else {}),
+                "direction_labels": {
+                    "positive": line.positive_label,
+                    "negative": line.negative_label,
+                },
+                "enabled": line.enabled,
+            }
+            for line in cfg.lines
+        ],
+        "aois": [
+            {
+                "id": aoi.id,
+                "name": aoi.name,
+                "type": aoi.type,
+                "coordinates": _json_coordinates(aoi.coordinates),
+                "enabled": aoi.enabled,
+            }
+            for aoi in cfg.aois
+        ],
+        "line_crossing_epsilon": cfg.line_crossing_epsilon,
+        "min_frames_between_same_line_crossing": cfg.min_frames_between_same_line_crossing,
+        "aoi_boundary_debounce_frames": cfg.aoi_boundary_debounce_frames,
+        "activity_bin_seconds": cfg.activity_bin_seconds,
+        "count_valid_tracks_only": cfg.count_valid_tracks_only,
+    }
+
 
 
 def analyze_tracks(
@@ -242,31 +261,42 @@ def detect_line_crossings(tracks: Iterable[Any], fps: float, cfg: CountingConfig
         for line in cfg.lines:
             if not line.enabled:
                 continue
-            if _same_point(line.p1, line.p2):
+            points = _line_points(line)
+            if len(points) < 2:
                 continue
 
             last_side: Optional[int] = None
             last_event_frame: Optional[int] = None
 
-            for detection in detections:
-                side = _line_side(_centroid(detection), line, cfg.line_crossing_epsilon)
-                if side == 0:
+            for idx, detection in enumerate(detections):
+                point = _centroid(detection)
+                side = _polyline_side(points, point, cfg.line_crossing_epsilon)
+                if idx == 0:
+                    last_side = side if side != 0 else None
                     continue
-                if last_side is None:
-                    last_side = side
-                    continue
-                if side == last_side:
-                    continue
+
+                previous_point = _centroid(detections[idx - 1])
+                direction_sign = _polyline_crossing_sign(previous_point, point, points, cfg.line_crossing_epsilon)
+                if direction_sign is None:
+                    if side == 0:
+                        continue
+                    if last_side is None:
+                        last_side = side
+                        continue
+                    if side == last_side:
+                        continue
+                    direction_sign = 1 if side > last_side else -1
 
                 frame = int(detection.frame_idx)
                 if last_event_frame is not None and frame - last_event_frame < cfg.min_frames_between_same_line_crossing:
-                    last_side = side
+                    if side != 0:
+                        last_side = side
                     continue
 
                 key = (int(track.track_id), line.id)
                 counters[key] = counters.get(key, 0) + 1
-                direction = line.positive_label if side > last_side else line.negative_label
-                cx, cy = _centroid(detection)
+                direction = line.positive_label if direction_sign > 0 else line.negative_label
+                cx, cy = point
                 events.append(
                     CrossingEvent(
                         event_id=f"crossing_{track.track_id}_{line.id}_{counters[key]}",
@@ -281,7 +311,8 @@ def detect_line_crossings(tracks: Iterable[Any], fps: float, cfg: CountingConfig
                     )
                 )
                 last_event_frame = frame
-                last_side = side
+                if side != 0:
+                    last_side = side
 
     events.sort(key=lambda event: (event.frame, event.track_id, event.line_id, event.event_id))
     return events
@@ -297,14 +328,14 @@ def detect_aoi_events(tracks: Iterable[Any], fps: float, cfg: CountingConfig) ->
             continue
 
         for aoi in cfg.aois:
-            if not aoi.enabled or aoi.type != "rectangle":
+            if not aoi.enabled:
                 continue
 
             previous_inside: Optional[bool] = None
             last_event_frame: Optional[int] = None
             for detection in detections:
                 point = _centroid(detection)
-                inside = point_in_rect(point, aoi.coordinates)
+                inside = point_in_aoi(point, aoi)
                 if previous_inside is None:
                     previous_inside = inside
                     continue
@@ -586,46 +617,176 @@ def write_run_summary_json(path: Path, summary: Dict[str, Any]) -> None:
 
 def write_counting_config_json(path: Path, cfg: CountingConfig) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    raw = {
-        "lines": [
-            {
-                "id": line.id,
-                "name": line.name,
-                "p1": list(line.p1),
-                "p2": list(line.p2),
-                "direction_labels": {
-                    "positive": line.positive_label,
-                    "negative": line.negative_label,
-                },
-                "enabled": line.enabled,
-            }
-            for line in cfg.lines
-        ],
-        "aois": [
-            {
-                "id": aoi.id,
-                "name": aoi.name,
-                "type": aoi.type,
-                "coordinates": list(aoi.coordinates),
-                "enabled": aoi.enabled,
-            }
-            for aoi in cfg.aois
-        ],
-        "line_crossing_epsilon": cfg.line_crossing_epsilon,
-        "min_frames_between_same_line_crossing": cfg.min_frames_between_same_line_crossing,
-        "aoi_boundary_debounce_frames": cfg.aoi_boundary_debounce_frames,
-        "activity_bin_seconds": cfg.activity_bin_seconds,
-        "count_valid_tracks_only": cfg.count_valid_tracks_only,
-    }
     with path.open("w", encoding="utf-8") as f:
-        json.dump(raw, f, indent=2, sort_keys=True)
+        json.dump(counting_config_to_dict(cfg), f, indent=2, sort_keys=True)
         f.write("\n")
+
 
 
 def point_in_rect(point: Point, rect: Rect) -> bool:
     x, y = point
     rx, ry, rw, rh = rect
     return rx <= x <= rx + rw and ry <= y <= ry + rh
+
+
+
+def point_in_aoi(point: Point, aoi: CountingAoi) -> bool:
+    if aoi.type == "polygon":
+        return point_in_polygon(point, aoi.coordinates)
+    return point_in_rect(point, aoi.coordinates)
+
+
+def point_in_polygon(point: Point, polygon: Sequence[Point]) -> bool:
+    if len(polygon) < 3:
+        return False
+    x, y = point
+    inside = False
+    for idx in range(len(polygon)):
+        x1, y1 = polygon[idx]
+        x2, y2 = polygon[(idx + 1) % len(polygon)]
+        if (y1 > y) != (y2 > y):
+            x_at_y = (x2 - x1) * (y - y1) / ((y2 - y1) or 1e-12) + x1
+            if x < x_at_y:
+                inside = not inside
+    return inside
+
+
+def _line_from_dict(item: Dict[str, Any], idx: int) -> CountingLine:
+    line_id = str(item.get("id", item.get("name", f"line_{idx}")))
+    name = str(item.get("name", line_id))
+    raw_points = item.get("pts")
+    if raw_points is None and "a" in item and "b" in item:
+        raw_points = [item["a"], item["b"]]
+    if raw_points is not None:
+        points = [_point(point) for point in raw_points]
+        if len(points) < 2:
+            raise ValueError(f"line '{line_id}' must contain at least two points")
+        p1, p2 = points[0], points[-1]
+    else:
+        p1 = _point(item["p1"])
+        p2 = _point(item["p2"])
+        points = None
+    labels = item.get("direction_labels", {})
+    return CountingLine(
+        id=line_id,
+        name=name,
+        p1=p1,
+        p2=p2,
+        positive_label=str(item.get("positive_label", labels.get("positive", "positive"))),
+        negative_label=str(item.get("negative_label", labels.get("negative", "negative"))),
+        enabled=bool(item.get("enabled", True)),
+        points=points,
+    )
+
+
+def _aoi_from_dict(item: Dict[str, Any], idx: int) -> CountingAoi:
+    aoi_id = str(item.get("id", item.get("name", f"aoi_{idx}")))
+    name = str(item.get("name", aoi_id))
+    aoi_type = str(item.get("type", "polygon" if "pts" in item else "rectangle"))
+    if aoi_type == "polygon":
+        raw_points = item.get("coordinates", item.get("pts", []))
+        coordinates = [_point(point) for point in raw_points]
+        if len(coordinates) < 3:
+            raise ValueError(f"polygon AOI '{aoi_id}' must contain at least three points")
+    else:
+        raw_rect = item.get("coordinates")
+        coordinates = tuple(float(v) for v in raw_rect)
+        if len(coordinates) != 4:
+            raise ValueError(f"rectangle AOI '{aoi_id}' must contain x,y,w,h")
+    return CountingAoi(
+        id=aoi_id,
+        name=name,
+        coordinates=coordinates,
+        enabled=bool(item.get("enabled", True)),
+        type=aoi_type,
+    )
+
+
+def _json_coordinates(coordinates: Any) -> Any:
+    if isinstance(coordinates, tuple):
+        return list(coordinates)
+    if isinstance(coordinates, list):
+        return [list(point) if isinstance(point, tuple) else point for point in coordinates]
+    return coordinates
+
+
+def _line_points(line: CountingLine) -> List[Point]:
+    if line.points and len(line.points) >= 2:
+        return [(float(x), float(y)) for x, y in line.points]
+    return [line.p1, line.p2]
+
+
+def _polyline_side(points: Sequence[Point], point: Point, epsilon: float) -> int:
+    best_idx = 0
+    best_dist = float("inf")
+    for idx in range(len(points) - 1):
+        dist = _point_to_segment_distance_sq(points[idx], points[idx + 1], point)
+        if dist < best_dist:
+            best_dist = dist
+            best_idx = idx
+    return _signed_side(points[best_idx], points[best_idx + 1], point, epsilon)
+
+
+def _polyline_crossing_sign(previous_point: Point, current_point: Point, points: Sequence[Point], epsilon: float) -> Optional[int]:
+    for idx in range(len(points) - 1):
+        a = points[idx]
+        b = points[idx + 1]
+        if not _segments_intersect(previous_point, current_point, a, b):
+            continue
+        previous_side = _signed_side(a, b, previous_point, epsilon)
+        current_side = _signed_side(a, b, current_point, epsilon)
+        if previous_side < 0 and current_side > 0:
+            return 1
+        if previous_side > 0 and current_side < 0:
+            return -1
+    return None
+
+
+def _signed_side(a: Point, b: Point, point: Point, epsilon: float) -> int:
+    cross = (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0])
+    if abs(cross) <= epsilon:
+        return 0
+    return 1 if cross > 0 else -1
+
+
+def _point_to_segment_distance_sq(a: Point, b: Point, point: Point) -> float:
+    ax, ay = a
+    bx, by = b
+    px, py = point
+    vx, vy = bx - ax, by - ay
+    wx, wy = px - ax, py - ay
+    length_sq = vx * vx + vy * vy
+    t = 0.0 if length_sq == 0 else max(0.0, min(1.0, (wx * vx + wy * vy) / length_sq))
+    cx, cy = ax + t * vx, ay + t * vy
+    return (px - cx) ** 2 + (py - cy) ** 2
+
+
+def _segments_intersect(p1: Point, p2: Point, q1: Point, q2: Point) -> bool:
+    def orient(a: Point, b: Point, c: Point) -> int:
+        value = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        return 1 if value > 0 else (-1 if value < 0 else 0)
+
+    def on_segment(a: Point, b: Point, c: Point) -> bool:
+        return (
+            min(a[0], b[0]) - 1e-6 <= c[0] <= max(a[0], b[0]) + 1e-6
+            and min(a[1], b[1]) - 1e-6 <= c[1] <= max(a[1], b[1]) + 1e-6
+        )
+
+    o1 = orient(p1, p2, q1)
+    o2 = orient(p1, p2, q2)
+    o3 = orient(q1, q2, p1)
+    o4 = orient(q1, q2, p2)
+    if o1 != o2 and o3 != o4:
+        return True
+    if o1 == 0 and on_segment(p1, p2, q1):
+        return True
+    if o2 == 0 and on_segment(p1, p2, q2):
+        return True
+    if o3 == 0 and on_segment(q1, q2, p1):
+        return True
+    if o4 == 0 and on_segment(q1, q2, p2):
+        return True
+    return False
 
 
 def _line_side(point: Point, line: CountingLine, epsilon: float) -> int:

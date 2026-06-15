@@ -7,6 +7,7 @@ from counting_stats import (
     CountingLine,
     analyze_tracks,
     detect_aoi_events,
+    counting_config_from_dict,
     detect_line_crossings,
 )
 
@@ -97,6 +98,62 @@ class CountingStatsTest(unittest.TestCase):
         self.assertEqual(len(results.crossings), 1)
         self.assertEqual(results.crossings[0].track_id, 1)
         self.assertEqual(results.run_summary["valid_tracks"], 1)
+
+    def test_polyline_crossing_uses_drawn_segments(self):
+        cfg = CountingConfig(
+            lines=[
+                CountingLine(
+                    "bent",
+                    "Bent",
+                    (0, 0),
+                    (10, 10),
+                    positive_label="A_to_B",
+                    negative_label="B_to_A",
+                    points=[(0, 0), (0, 10), (10, 10)],
+                )
+            ],
+            line_crossing_epsilon=0.0,
+        )
+        track = make_track(1, [(-5, 5), (5, 5)])
+
+        events = detect_line_crossings([track], fps=10.0, cfg=cfg)
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].line_id, "bent")
+        self.assertEqual(events[0].direction, "B_to_A")
+
+    def test_polygon_aoi_entry_and_exit_from_json(self):
+        cfg = counting_config_from_dict(
+            {
+                "aois": [
+                    {
+                        "id": "poly",
+                        "name": "Polygon",
+                        "type": "polygon",
+                        "coordinates": [[10, 10], [30, 10], [30, 30], [10, 30]],
+                    }
+                ]
+            }
+        )
+        cfg.aoi_boundary_debounce_frames = 0
+        track = make_track(1, [(0, 0), (20, 20), (40, 40)])
+
+        events = detect_aoi_events([track], fps=10.0, cfg=cfg)
+
+        self.assertEqual([(event.event_type, event.frame) for event in events], [("entry", 1), ("exit", 2)])
+
+    def test_cvc_drawn_config_format_loads_lines_and_zones(self):
+        cfg = counting_config_from_dict(
+            {
+                "lines": [{"name": "Gate", "a": [0, 0], "b": [0, 10]}],
+                "zones": [{"name": "Roost", "pts": [[0, 0], [10, 0], [10, 10], [0, 10]]}],
+            }
+        )
+
+        self.assertEqual(cfg.lines[0].id, "Gate")
+        self.assertEqual(cfg.lines[0].points, [(0.0, 0.0), (0.0, 10.0)])
+        self.assertEqual(cfg.aois[0].type, "polygon")
+        self.assertEqual(cfg.aois[0].name, "Roost")
 
 
 if __name__ == "__main__":

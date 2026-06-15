@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog
 from tkinter import ttk
 from tkinter.scrolledtext import ScrolledText
 
@@ -428,6 +428,304 @@ class RoiExcludeDrawingWindow(tk.Toplevel):
         return max(low, min(high, value))
 
 
+class CountingConfigDrawingWindow(tk.Toplevel):
+    """Click-based editor for counting lines and polygon AOIs."""
+
+    MAX_DISPLAY_WIDTH = 1050
+    MAX_DISPLAY_HEIGHT = 680
+
+    def __init__(
+        self,
+        parent: tk.Tk,
+        input_video: str,
+        frame_index_var: tk.StringVar,
+        counting_config_var: tk.StringVar,
+        count_lines_var: tk.StringVar,
+        count_aois_var: tk.StringVar,
+    ) -> None:
+        super().__init__(parent)
+        self.title("Draw counting lines / AOIs")
+        self.geometry(f"{min(1180, max(860, self.winfo_screenwidth() - 80))}x{min(820, max(600, self.winfo_screenheight() - 120))}")
+        self.minsize(760, 520)
+
+        self.input_video = input_video
+        self.frame_index_var = frame_index_var
+        self.counting_config_var = counting_config_var
+        self.count_lines_var = count_lines_var
+        self.count_aois_var = count_aois_var
+
+        self.mode_var = tk.StringVar(value="line")
+        self.status_var = tk.StringVar(value="Line: click A then B. Polyline/AOI: click points, Enter to finish.")
+        self.frame_info_var = tk.StringVar(value="")
+        self.lines: List[dict] = []
+        self.aois: List[dict] = []
+        self.current_points: List[Tuple[float, float]] = []
+
+        self.frame_bgr = None
+        self.frame_width = 0
+        self.frame_height = 0
+        self.scale = 1.0
+        self.display_width = 0
+        self.display_height = 0
+        self.photo = None
+
+        self._build_widgets()
+        self._load_existing_config()
+        self._load_frame()
+
+    def _build_widgets(self) -> None:
+        top = ttk.Frame(self, padding=8)
+        top.pack(side=tk.TOP, fill=tk.X)
+        ttk.Label(top, text="Tool:").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Radiobutton(top, text="Line", variable=self.mode_var, value="line", command=self._reset_points).pack(side=tk.LEFT)
+        ttk.Radiobutton(top, text="Polyline", variable=self.mode_var, value="polyline", command=self._reset_points).pack(side=tk.LEFT)
+        ttk.Radiobutton(top, text="AOI polygon", variable=self.mode_var, value="polygon", command=self._reset_points).pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Label(top, text="Frame:").pack(side=tk.LEFT)
+        ttk.Entry(top, textvariable=self.frame_index_var, width=8).pack(side=tk.LEFT, padx=4)
+        ttk.Button(top, text="Reload frame", command=self._load_frame).pack(side=tk.LEFT, padx=(0, 12))
+        ttk.Button(top, text="Undo point", command=self._undo_point).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Remove last object", command=self._remove_last).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Clear all", command=self._clear_all).pack(side=tk.LEFT, padx=3)
+        ttk.Button(top, text="Save JSON", command=self._save_json).pack(side=tk.RIGHT, padx=3)
+        ttk.Button(top, text="Close", command=self.destroy).pack(side=tk.RIGHT, padx=3)
+
+        info = ttk.Frame(self, padding=(8, 0, 8, 4))
+        info.pack(side=tk.TOP, fill=tk.X)
+        ttk.Label(info, textvariable=self.frame_info_var).pack(side=tk.LEFT)
+        ttk.Label(info, textvariable=self.status_var).pack(side=tk.RIGHT)
+
+        canvas_frame = ttk.Frame(self, padding=8)
+        canvas_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.canvas = tk.Canvas(canvas_frame, background="#222222", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.canvas.bind("<Button-1>", self._on_click)
+        self.bind("<Return>", lambda _event: self._finish_multi_point())
+        self.bind("<BackSpace>", lambda _event: self._undo_point())
+
+        bottom = ttk.LabelFrame(self, text="Current counting objects", padding=8)
+        bottom.pack(side=tk.BOTTOM, fill=tk.X, padx=8, pady=(0, 8))
+        self.summary_text = tk.Text(bottom, height=4, width=80)
+        self.summary_text.pack(fill=tk.X)
+        self._sync_summary()
+
+    def _load_frame(self) -> None:
+        input_path = Path(self.input_video)
+        if not input_path.exists():
+            messagebox.showerror("Draw counting config", f"Input video not found:\n{input_path}")
+            self.destroy()
+            return
+        try:
+            frame_index = max(0, int(self.frame_index_var.get().strip() or "0"))
+        except ValueError:
+            messagebox.showerror("Draw counting config", "Frame index must be an integer.")
+            return
+        cap = cv2.VideoCapture(str(input_path))
+        if not cap.isOpened():
+            messagebox.showerror("Draw counting config", f"Could not open video:\n{input_path}")
+            self.destroy()
+            return
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if frame_count > 0:
+            frame_index = min(frame_index, max(0, frame_count - 1))
+            self.frame_index_var.set(str(frame_index))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        ok, frame = cap.read()
+        cap.release()
+        if not ok or frame is None:
+            messagebox.showerror("Draw counting config", f"Could not read frame {frame_index}.")
+            return
+        self.frame_bgr = frame
+        self.frame_height, self.frame_width = frame.shape[:2]
+        self.scale = min(self.MAX_DISPLAY_WIDTH / max(1, self.frame_width), self.MAX_DISPLAY_HEIGHT / max(1, self.frame_height), 1.0)
+        self.display_width = max(1, int(round(self.frame_width * self.scale)))
+        self.display_height = max(1, int(round(self.frame_height * self.scale)))
+        self.frame_info_var.set(f"Frame {frame_index} | original: {self.frame_width} x {self.frame_height} px | display scale: {self.scale:.3f}")
+        self._redraw_canvas()
+
+    def _redraw_canvas(self) -> None:
+        if self.frame_bgr is None:
+            return
+        display_bgr = cv2.resize(self.frame_bgr, (self.display_width, self.display_height), interpolation=cv2.INTER_AREA if self.scale < 1 else cv2.INTER_LINEAR)
+        display_rgb = cv2.cvtColor(display_bgr, cv2.COLOR_BGR2RGB)
+        ok, png_buffer = cv2.imencode(".png", display_rgb)
+        if not ok:
+            messagebox.showerror("Draw counting config", "Could not render preview frame.")
+            return
+        self.photo = tk.PhotoImage(data=base64.b64encode(png_buffer).decode("ascii"))
+        self.canvas.delete("all")
+        self.canvas.configure(width=self.display_width, height=self.display_height, scrollregion=(0, 0, self.display_width, self.display_height))
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
+        self._draw_objects()
+
+    def _draw_objects(self) -> None:
+        for line in self.lines:
+            pts = [self._img_to_display(point) for point in line["pts"]]
+            for idx in range(1, len(pts)):
+                self.canvas.create_line(*pts[idx - 1], *pts[idx], fill="#00d7ff", width=3, arrow=tk.LAST if idx == len(pts) - 1 else None)
+            self.canvas.create_text(*pts[0], anchor=tk.SW, fill="#00d7ff", text="A")
+            self.canvas.create_text(*pts[-1], anchor=tk.NW, fill="#00d7ff", text=f"B {line['name']}")
+        for aoi in self.aois:
+            pts = [self._img_to_display(point) for point in aoi["coordinates"]]
+            flat = [coord for point in pts for coord in point]
+            self.canvas.create_polygon(*flat, outline="#ffaa00", fill="", width=2)
+            cx = sum(point[0] for point in pts) / len(pts)
+            cy = sum(point[1] for point in pts) / len(pts)
+            self.canvas.create_text(cx, cy, fill="#ffaa00", text=aoi["name"])
+        if self.current_points:
+            pts = [self._img_to_display(point) for point in self.current_points]
+            for idx, point in enumerate(pts):
+                self.canvas.create_oval(point[0] - 3, point[1] - 3, point[0] + 3, point[1] + 3, fill="yellow", outline="")
+                if idx > 0:
+                    self.canvas.create_line(*pts[idx - 1], *point, fill="yellow", width=2)
+
+    def _on_click(self, event) -> None:
+        if self.frame_bgr is None:
+            return
+        x = max(0, min(self.display_width - 1, event.x)) / self.scale
+        y = max(0, min(self.display_height - 1, event.y)) / self.scale
+        self.current_points.append((x, y))
+        mode = self.mode_var.get()
+        if mode == "line" and len(self.current_points) == 2:
+            self._add_line(self.current_points)
+            self.current_points = []
+        self._redraw_canvas()
+
+    def _finish_multi_point(self) -> None:
+        mode = self.mode_var.get()
+        if mode == "polyline" and len(self.current_points) >= 2:
+            self._add_line(self.current_points)
+            self.current_points = []
+        elif mode == "polygon" and len(self.current_points) >= 3:
+            self._add_polygon(self.current_points)
+            self.current_points = []
+        else:
+            self.status_var.set("Need 2 points for a line/polyline or 3 points for AOI polygon.")
+            return
+        self._redraw_canvas()
+
+    def _add_line(self, points: List[Tuple[float, float]]) -> None:
+        name = simpledialog.askstring("Line name", "Name for this counting line:", parent=self)
+        if not name:
+            return
+        line_id = self._slug(name, f"line_{len(self.lines) + 1}")
+        self.lines.append({
+            "id": line_id,
+            "name": name.strip(),
+            "p1": [round(points[0][0], 3), round(points[0][1], 3)],
+            "p2": [round(points[-1][0], 3), round(points[-1][1], 3)],
+            "pts": [[round(x, 3), round(y, 3)] for x, y in points],
+            "direction_labels": {"positive": "A_to_B", "negative": "B_to_A"},
+            "enabled": True,
+        })
+        self.status_var.set(f"Line added: {name}")
+        self._sync_summary()
+
+    def _add_polygon(self, points: List[Tuple[float, float]]) -> None:
+        name = simpledialog.askstring("AOI name", "Name for this AOI / ROI:", parent=self)
+        if not name:
+            return
+        aoi_id = self._slug(name, f"aoi_{len(self.aois) + 1}")
+        self.aois.append({
+            "id": aoi_id,
+            "name": name.strip(),
+            "type": "polygon",
+            "coordinates": [[round(x, 3), round(y, 3)] for x, y in points],
+            "enabled": True,
+        })
+        self.status_var.set(f"AOI added: {name}")
+        self._sync_summary()
+
+    def _save_json(self) -> None:
+        target = self.counting_config_var.get().strip()
+        if not target:
+            target = "outputs/counting_config_drawn.json"
+            self.counting_config_var.set(target)
+        path = Path(target)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {"lines": self.lines, "aois": self.aois}
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, sort_keys=True)
+                f.write("\n")
+        except Exception as exc:
+            messagebox.showerror("Save counting config", str(exc))
+            return
+        self.count_lines_var.set("")
+        self.count_aois_var.set("")
+        self.status_var.set(f"Saved: {path}")
+        messagebox.showinfo("Save counting config", f"Saved counting config:\n{path}")
+
+    def _load_existing_config(self) -> None:
+        target = self.counting_config_var.get().strip()
+        if not target or not Path(target).exists():
+            return
+        try:
+            data = json.loads(Path(target).read_text(encoding="utf-8"))
+        except Exception:
+            return
+        self.lines = []
+        for idx, item in enumerate(data.get("lines", []), start=1):
+            pts = item.get("pts") or [item.get("p1"), item.get("p2")]
+            if pts and len(pts) >= 2:
+                self.lines.append({**item, "id": item.get("id", f"line_{idx}"), "name": item.get("name", f"Line {idx}"), "pts": pts})
+        self.aois = []
+        for idx, item in enumerate(data.get("aois", data.get("zones", [])), start=1):
+            coords = item.get("coordinates", item.get("pts", []))
+            if item.get("type", "polygon") == "polygon" and len(coords) >= 3:
+                self.aois.append({**item, "id": item.get("id", f"aoi_{idx}"), "name": item.get("name", f"AOI {idx}"), "type": "polygon", "coordinates": coords})
+        self._sync_summary()
+
+    def _sync_summary(self) -> None:
+        if not hasattr(self, "summary_text"):
+            return
+        rows = [f"Lines: {len(self.lines)}", f"AOIs: {len(self.aois)}"]
+        rows.extend(f"LINE {line['name']}: {len(line['pts'])} pts" for line in self.lines)
+        rows.extend(f"AOI {aoi['name']}: {len(aoi['coordinates'])} pts" for aoi in self.aois)
+        self.summary_text.delete("1.0", tk.END)
+        self.summary_text.insert("1.0", "\n".join(rows))
+
+    def _reset_points(self) -> None:
+        self.current_points = []
+        mode = self.mode_var.get()
+        if mode == "line":
+            self.status_var.set("Line: click A then B.")
+        elif mode == "polyline":
+            self.status_var.set("Polyline: click points, press Enter to finish.")
+        else:
+            self.status_var.set("AOI polygon: click boundary points, press Enter to finish.")
+        self._redraw_canvas()
+
+    def _undo_point(self) -> None:
+        if self.current_points:
+            self.current_points.pop()
+            self._redraw_canvas()
+
+    def _remove_last(self) -> None:
+        if self.aois:
+            self.aois.pop()
+        elif self.lines:
+            self.lines.pop()
+        self._sync_summary()
+        self._redraw_canvas()
+
+    def _clear_all(self) -> None:
+        self.lines.clear()
+        self.aois.clear()
+        self.current_points.clear()
+        self._sync_summary()
+        self._redraw_canvas()
+
+    def _img_to_display(self, point) -> Tuple[float, float]:
+        return float(point[0]) * self.scale, float(point[1]) * self.scale
+
+    @staticmethod
+    def _slug(value: str, fallback: str) -> str:
+        slug = "".join(ch.lower() if ch.isalnum() else "_" for ch in value.strip()).strip("_")
+        while "__" in slug:
+            slug = slug.replace("__", "_")
+        return slug or fallback
+
+
 class ScrollableFrame(ttk.Frame):
     """A reusable vertically scrollable frame for dense parameter tabs."""
 
@@ -711,12 +1009,47 @@ class ThermalDetectorGUI(tk.Tk):
             exclude_zones_var=self.path_vars["exclude_zones"],
         )
 
+
+    def _open_counting_drawing_window(self) -> None:
+        input_video = self.path_vars["input"].get().strip()
+        if not input_video:
+            messagebox.showerror(APP_TITLE, "Choose an input video first.")
+            return
+        if not self.path_vars["counting_config"].get().strip():
+            self.path_vars["counting_config"].set("outputs/counting_config_drawn.json")
+        CountingConfigDrawingWindow(
+            parent=self,
+            input_video=input_video,
+            frame_index_var=self.path_vars["draw_frame"],
+            counting_config_var=self.path_vars["counting_config"],
+            count_lines_var=self.path_vars["count_lines"],
+            count_aois_var=self.path_vars["count_aois"],
+        )
+
+    def _browse_counting_config_save(self) -> None:
+        path = filedialog.asksaveasfilename(
+            title="Save counting config JSON",
+            defaultextension=".json",
+            filetypes=[("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if path:
+            self.path_vars["counting_config"].set(path)
+
     def _build_counting_tab(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Counting config JSON, optional").pack(anchor="w")
         config_row = ttk.Frame(parent)
-        config_row.pack(fill=tk.X, pady=(2, 10))
+        config_row.pack(fill=tk.X, pady=(2, 6))
         ttk.Entry(config_row, textvariable=self.path_vars["counting_config"]).pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Button(config_row, text="Browse", command=self._browse_counting_config).pack(side=tk.LEFT, padx=(4, 0))
+
+        draw_row = ttk.LabelFrame(parent, text="Draw counting geometry from video frame", padding=8)
+        draw_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(draw_row, text="Frame index").grid(row=0, column=0, sticky="w", padx=4, pady=3)
+        ttk.Entry(draw_row, textvariable=self.path_vars["draw_frame"], width=10).grid(row=0, column=1, sticky="w", padx=4, pady=3)
+        ttk.Button(draw_row, text="Draw lines / AOIs", command=self._open_counting_drawing_window).grid(row=0, column=2, sticky="w", padx=8, pady=3)
+        ttk.Button(draw_row, text="Save as...", command=self._browse_counting_config_save).grid(row=0, column=3, sticky="w", padx=4, pady=3)
+        ttk.Label(draw_row, text="Click instead of typing pixel coordinates. Lines count crossings; AOI polygons count entry/exit.", justify=tk.LEFT).grid(row=1, column=0, columnspan=4, sticky="w", padx=4, pady=(4, 0))
+        draw_row.columnconfigure(4, weight=1)
 
         ttk.Checkbutton(parent, text="Count all tracks for diagnostics", variable=self.bool_vars["count_all_tracks"]).pack(anchor="w", pady=(0, 10))
 
