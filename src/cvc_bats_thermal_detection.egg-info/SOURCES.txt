@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/gui.py
+src/thermal_blob_detector.py
+src/thermal_blob_detector_gui.py
+src/thermal_blob_detector_mvp_v3_valid_tracks.py
+src/cvc_bats_thermal_detection.egg-info/PKG-INFO
+src/cvc_bats_thermal_detection.egg-info/SOURCES.txt
+src/cvc_bats_thermal_detection.egg-info/dependency_links.txt
+src/cvc_bats_thermal_detection.egg-info/entry_points.txt
+src/cvc_bats_thermal_detection.egg-info/requires.txt
+src/cvc_bats_thermal_detection.egg-info/top_level.txt
