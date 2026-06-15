@@ -88,6 +88,18 @@ You can also keep geometry in JSON and pass it with `--counting-config examples/
 
 ## Run the GUI
 
+Quick launcher from the repository root:
+
+```bash
+./start.sh
+```
+
+Portable Python launcher:
+
+```bash
+python start.py
+```
+
 Installed command, after `pip install -e .`:
 
 ```bash
