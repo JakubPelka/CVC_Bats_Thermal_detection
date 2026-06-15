@@ -1,0 +1,80 @@
+# CVC Bats Thermal Detection
+
+Thermal video blob detection and simple track filtering for bat monitoring.
+
+## Repository layout
+
+```text
+.
+|-- src/
+|   |-- thermal_blob_detector.py  # detector CLI and processing logic
+|   |-- gui.py                    # Tkinter parameter GUI
+|   |-- thermal_blob_detector_mvp_v3_valid_tracks.py  # legacy CLI wrapper
+|   `-- thermal_blob_detector_gui.py                  # legacy GUI wrapper
+|-- docs/                         # detailed usage notes
+|-- examples/                     # sample input video and presets
+`-- outputs/                      # sample generated outputs
+```
+
+## Setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+For a non-editable quick setup, install the runtime requirements:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Run the detector
+
+Installed command:
+
+```bash
+thermal-blob-detector \
+  --input examples/sample.mp4 \
+  --output outputs/thermal_blob_valid_tracks.mp4 \
+  --csv outputs/thermal_blob_track_points.csv \
+  --summary-csv outputs/thermal_blob_track_summary.csv
+```
+
+Module form:
+
+```bash
+PYTHONPATH=src python -m thermal_blob_detector --input examples/sample.mp4
+```
+
+Legacy wrapper:
+
+```bash
+python src/thermal_blob_detector_mvp_v3_valid_tracks.py --input examples/sample.mp4
+```
+
+## Run the GUI
+
+Installed command:
+
+```bash
+thermal-blob-detector-gui
+```
+
+Module form:
+
+```bash
+PYTHONPATH=src python -m gui
+```
+
+Legacy wrapper:
+
+```bash
+python src/thermal_blob_detector_gui.py
+```
+
+## Documentation
+
+- [Detector MVP notes](docs/thermal_blob_detector_MVP.md)
+- [GUI notes](docs/thermal_blob_detector_GUI.md)

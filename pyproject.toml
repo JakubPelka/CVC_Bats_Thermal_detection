@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cvc-bats-thermal-detection"
+version = "0.1.0"
+description = "Thermal video blob detection and track filtering for bat monitoring."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "opencv-python",
+]
+
+[project.scripts]
+thermal-blob-detector = "thermal_blob_detector:main"
+thermal-blob-detector-gui = "gui:main"
+
+[tool.setuptools]
+py-modules = [
+    "gui",
+    "thermal_blob_detector",
+    "thermal_blob_detector_gui",
+    "thermal_blob_detector_mvp_v3_valid_tracks",
+]

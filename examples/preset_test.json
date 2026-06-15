@@ -1,6 +1,6 @@
 {
   "paths": {
-    "script": "C:\\Users\\jakpel\\OneDrive - Kungsbacka kommun\\GitHub\\CVC_Bats_Thermal_detection\\thermal_blob_detector_mvp_v3_valid_tracks.py",
+    "script": "C:\\Users\\jakpel\\OneDrive - Kungsbacka kommun\\GitHub\\CVC_Bats_Thermal_detection\\src\\thermal_blob_detector_mvp_v3_valid_tracks.py",
     "input": "C:/Users/jakpel/OneDrive - Kungsbacka kommun/GitHub/CVC_Bats_Thermal_detection/sample.mp4",
     "output": "C:\\Users\\jakpel\\OneDrive - Kungsbacka kommun\\GitHub\\CVC_Bats_Thermal_detection\\sample_valid_tracks.mp4",
     "csv": "C:\\Users\\jakpel\\OneDrive - Kungsbacka kommun\\GitHub\\CVC_Bats_Thermal_detection\\sample_track_points.csv",

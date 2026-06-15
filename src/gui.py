@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-thermal_blob_detector_gui.py
+gui.py
 
-Tkinter launcher for thermal_blob_detector_mvp_v3_valid_tracks.py.
+Tkinter launcher for thermal_blob_detector.
 
 Purpose:
 - Change detector parameters from a small GUI.
@@ -10,11 +10,8 @@ Purpose:
 - Save/load parameter presets as JSON.
 - Keep the detector itself separate and stable.
 
-Place this file in the same folder as:
-    thermal_blob_detector_mvp_v3_valid_tracks.py
-
 Then run:
-    python thermal_blob_detector_gui.py
+    python -m gui
 
 By default, the OpenCV preview window is enabled. Parameter tabs include an explanation column.
 """
@@ -40,7 +37,7 @@ import cv2
 
 APP_TITLE = "Thermal Bat Blob Detector - Parameter GUI"
 
-SCRIPT_DEFAULT_NAME = "thermal_blob_detector_mvp_v3_valid_tracks.py"
+DETECTOR_MODULE = "thermal_blob_detector"
 
 
 NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
@@ -431,9 +428,7 @@ class ThermalDetectorGUI(tk.Tk):
         self._refresh_command_preview()
 
     def _create_variables(self) -> None:
-        script_path = Path(__file__).with_name(SCRIPT_DEFAULT_NAME)
-
-        self.path_vars["script"] = tk.StringVar(value=str(script_path))
+        self.path_vars["script"] = tk.StringVar(value=DETECTOR_MODULE)
         self.path_vars["input"] = tk.StringVar(value="")
         self.path_vars["output"] = tk.StringVar(value="thermal_blob_valid_tracks.mp4")
         self.path_vars["csv"] = tk.StringVar(value="thermal_blob_track_points.csv")
@@ -842,17 +837,23 @@ class ThermalDetectorGUI(tk.Tk):
                 self.num_vars[key].set(value)
 
     def _build_command(self) -> List[str]:
-        script = Path(self.path_vars["script"].get().strip())
+        script_or_module = self.path_vars["script"].get().strip()
         input_video = self.path_vars["input"].get().strip()
 
-        if not script.exists():
-            raise ValueError(f"Detector script not found:\n{script}")
+        if not script_or_module:
+            raise ValueError("Detector script/module is required.")
         if not input_video:
             raise ValueError("Input video is required.")
         if not Path(input_video).exists():
             raise ValueError(f"Input video not found:\n{input_video}")
 
-        cmd: List[str] = [sys.executable, "-u", str(script), "--input", input_video]
+        script_path = Path(script_or_module)
+        if script_path.exists():
+            cmd: List[str] = [sys.executable, "-u", str(script_path), "--input", input_video]
+        elif script_or_module == DETECTOR_MODULE or "." in script_or_module:
+            cmd = [sys.executable, "-u", "-m", script_or_module, "--input", input_video]
+        else:
+            raise ValueError(f"Detector script not found:\n{script_or_module}")
 
         output = self.path_vars["output"].get().strip()
         csv_path = self.path_vars["csv"].get().strip()
@@ -959,8 +960,9 @@ class ThermalDetectorGUI(tk.Tk):
             messagebox.showerror(APP_TITLE, str(exc))
             return
 
-        script_path = Path(self.path_vars["script"].get().strip())
-        cwd = str(script_path.parent)
+        script_or_module = self.path_vars["script"].get().strip()
+        script_path = Path(script_or_module)
+        cwd = str(script_path.parent) if script_path.exists() else str(Path.cwd())
 
         self.append_log("\n=== RUN START ===\n")
         self.append_log(subprocess.list2cmdline(cmd) + "\n\n")

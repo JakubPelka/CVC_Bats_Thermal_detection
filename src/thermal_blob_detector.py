@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-thermal_blob_detector_mvp_v3_valid_tracks.py
+thermal_blob_detector.py
 
 Standalone MVP for detecting and tracking bright moving blobs in tripod thermal video.
 
@@ -13,10 +13,10 @@ Scope:
 - No line/AOI counting logic is included here.
 
 Typical use:
-    python thermal_blob_detector_mvp_v3_valid_tracks.py --input sample.mp4 --output tracks.mp4 --csv tracks.csv --show
+    python -m thermal_blob_detector --input examples/sample.mp4 --output outputs/tracks.mp4 --csv outputs/tracks.csv --show
 
 Useful debug use:
-    python thermal_blob_detector_mvp_v3_valid_tracks.py --input sample.mp4 --draw-all-tracks --show
+    python -m thermal_blob_detector --input examples/sample.mp4 --draw-all-tracks --show
 """
 
 from __future__ import annotations

@@ -28,7 +28,7 @@ Other common causes:
 ```bash
 pip install opencv-python numpy
 
-python thermal_blob_detector_mvp_v2.py --input sample.mp4 --output debug.mp4 --csv tracks.csv --show
+PYTHONPATH=src python -m thermal_blob_detector --input examples/sample.mp4 --output outputs/debug.mp4 --csv outputs/tracks.csv --show
 ```
 
 ## First diagnostic run
@@ -36,10 +36,10 @@ python thermal_blob_detector_mvp_v2.py --input sample.mp4 --output debug.mp4 --c
 Shows raw accepted detections and temporary tracks before they are confirmed.
 
 ```bash
-python thermal_blob_detector_mvp.py \
-  --input sample.mp4 \
-  --output debug_diagnostic.mp4 \
-  --csv tracks_diagnostic.csv \
+PYTHONPATH=src python -m thermal_blob_detector \
+  --input examples/sample.mp4 \
+  --output outputs/debug_diagnostic.mp4 \
+  --csv outputs/tracks_diagnostic.csv \
   --draw-all-candidates \
   --min-track-lifetime 1 \
   --max-link-distance 120 \
@@ -52,10 +52,10 @@ If the bright bats appear in this run, the detector sees them. The issue is then
 ## More conservative production-like run
 
 ```bash
-python thermal_blob_detector_mvp.py \
-  --input sample.mp4 \
-  --output debug_clean.mp4 \
-  --csv tracks_clean.csv \
+PYTHONPATH=src python -m thermal_blob_detector \
+  --input examples/sample.mp4 \
+  --output outputs/debug_clean.mp4 \
+  --csv outputs/tracks_clean.csv \
   --threshold 18 \
   --min-area 2 \
   --max-area 300 \

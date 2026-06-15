@@ -5,7 +5,7 @@ This GUI version adds a drawing helper for rectangular ROI and exclude zones.
 It is still only a launcher for:
 
 ```text
-thermal_blob_detector_mvp_v3_valid_tracks.py
+thermal_blob_detector
 ```
 
 The detector itself is unchanged.
@@ -64,7 +64,7 @@ Polygon drawing can be added later, but it would require a detector-side change 
 ## Run
 
 ```bash
-python thermal_blob_detector_gui.py
+PYTHONPATH=src python -m gui
 ```
 
 The OpenCV preview window is enabled by default.
