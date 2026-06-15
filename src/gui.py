@@ -10,10 +10,17 @@ Purpose:
 - Save/load parameter presets as JSON.
 - Keep the detector itself separate and stable.
 
-Then run:
-    python -m gui
+Run after editable install:
+    thermal-blob-detector-gui
 
-By default, the OpenCV preview window is enabled. Parameter tabs include an explanation column.
+Or directly from the repository:
+    PYTHONPATH=src python -m gui
+
+UI note:
+The Run/Stop buttons are placed in a persistent bottom action bar so they remain
+visible on smaller screens and when desktop scaling is enabled. The main area uses
+a draggable split: parameter explanations get more width by default and the log
+panel can be resized with the vertical divider.
 """
 
 from __future__ import annotations
@@ -36,7 +43,6 @@ import cv2
 
 
 APP_TITLE = "Thermal Bat Blob Detector - Parameter GUI"
-
 DETECTOR_MODULE = "thermal_blob_detector"
 
 
@@ -74,6 +80,7 @@ NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
     ("trail_length", "--trail-length", "int", "0", "Trail length, 0 = full track", "Length of drawn trail. 0 draws full history; small values draw only a moving tail."),
 ]
 
+
 BOOLEAN_PARAMS: List[Tuple[str, str, str, bool, str]] = [
     # key, CLI flag, label, default, explanation
     ("show", "--show", "Show OpenCV preview window", True, "Opens live preview during processing. Useful while tuning parameters."),
@@ -108,8 +115,7 @@ class RoiExcludeDrawingWindow(tk.Toplevel):
     ) -> None:
         super().__init__(parent)
         self.title("Draw ROI / exclude zones")
-        self.geometry("1180x820")
-        self.minsize(900, 650)
+        self._set_safe_window_size()
 
         self.input_video = input_video
         self.frame_index_var = frame_index_var
@@ -134,9 +140,17 @@ class RoiExcludeDrawingWindow(tk.Toplevel):
         self._build_widgets()
         self._load_frame()
 
+    def _set_safe_window_size(self) -> None:
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        width = min(1180, max(860, screen_w - 80))
+        height = min(820, max(600, screen_h - 120))
+        self.geometry(f"{width}x{height}")
+        self.minsize(760, 520)
+
     def _build_widgets(self) -> None:
         top = ttk.Frame(self, padding=8)
-        top.pack(fill=tk.X)
+        top.pack(side=tk.TOP, fill=tk.X)
 
         ttk.Label(top, text="Mode:").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Radiobutton(top, text="ROI", variable=self.mode_var, value="roi").pack(side=tk.LEFT)
@@ -152,22 +166,12 @@ class RoiExcludeDrawingWindow(tk.Toplevel):
         ttk.Button(top, text="Close", command=self.destroy).pack(side=tk.RIGHT, padx=3)
 
         info = ttk.Frame(self, padding=(8, 0, 8, 4))
-        info.pack(fill=tk.X)
+        info.pack(side=tk.TOP, fill=tk.X)
         ttk.Label(info, textvariable=self.frame_info_var).pack(side=tk.LEFT)
         ttk.Label(info, textvariable=self.status_var).pack(side=tk.RIGHT)
 
-        canvas_frame = ttk.Frame(self, padding=8)
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
-
-        self.canvas = tk.Canvas(canvas_frame, background="#222222", highlightthickness=0)
-        self.canvas.pack(fill=tk.BOTH, expand=True)
-
-        self.canvas.bind("<ButtonPress-1>", self._on_mouse_down)
-        self.canvas.bind("<B1-Motion>", self._on_mouse_drag)
-        self.canvas.bind("<ButtonRelease-1>", self._on_mouse_up)
-
         bottom = ttk.LabelFrame(self, text="Current values", padding=8)
-        bottom.pack(fill=tk.X, padx=8, pady=(0, 8))
+        bottom.pack(side=tk.BOTTOM, fill=tk.X, padx=8, pady=(0, 8))
 
         ttk.Label(bottom, text="ROI").grid(row=0, column=0, sticky="nw", padx=4, pady=3)
         ttk.Entry(bottom, textvariable=self.roi_var).grid(row=0, column=1, sticky="ew", padx=4, pady=3)
@@ -177,6 +181,16 @@ class RoiExcludeDrawingWindow(tk.Toplevel):
         self.exclude_preview.grid(row=1, column=1, sticky="ew", padx=4, pady=3)
 
         bottom.columnconfigure(1, weight=1)
+
+        canvas_frame = ttk.Frame(self, padding=8)
+        canvas_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        self.canvas = tk.Canvas(canvas_frame, background="#222222", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+
+        self.canvas.bind("<ButtonPress-1>", self._on_mouse_down)
+        self.canvas.bind("<B1-Motion>", self._on_mouse_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_mouse_up)
 
         self.exclude_zones_var.trace_add("write", lambda *_: self._sync_exclude_preview())
         self._sync_exclude_preview()
@@ -328,7 +342,6 @@ class RoiExcludeDrawingWindow(tk.Toplevel):
             return
 
         rect_text = f"{x},{y},{w},{h}"
-
         if self.mode_var.get() == "roi":
             self.roi_var.set(rect_text)
             self.status_var.set(f"ROI set: {rect_text}")
@@ -409,12 +422,52 @@ class RoiExcludeDrawingWindow(tk.Toplevel):
         return max(low, min(high, value))
 
 
+class ScrollableFrame(ttk.Frame):
+    """A reusable vertically scrollable frame for dense parameter tabs."""
+
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.canvas = tk.Canvas(self, highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.inner = ttk.Frame(self.canvas)
+
+        self.inner.bind(
+            "<Configure>",
+            lambda event: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
+        )
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        self.canvas.bind_all("<Button-4>", self._on_mousewheel_linux, add="+")
+        self.canvas.bind_all("<Button-5>", self._on_mousewheel_linux, add="+")
+
+    def _on_canvas_configure(self, event) -> None:
+        self.canvas.itemconfigure(self.canvas_window, width=event.width)
+
+    def _on_mousewheel(self, event) -> None:
+        if not self.winfo_ismapped():
+            return
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _on_mousewheel_linux(self, event) -> None:
+        if not self.winfo_ismapped():
+            return
+        if event.num == 4:
+            self.canvas.yview_scroll(-3, "units")
+        elif event.num == 5:
+            self.canvas.yview_scroll(3, "units")
+
+
 class ThermalDetectorGUI(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("1360x860")
-        self.minsize(1220, 760)
+        self._set_initial_window_size()
 
         self.process: Optional[subprocess.Popen[str]] = None
         self.reader_thread: Optional[threading.Thread] = None
@@ -427,12 +480,20 @@ class ThermalDetectorGUI(tk.Tk):
         self._create_widgets()
         self._refresh_command_preview()
 
+    def _set_initial_window_size(self) -> None:
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        width = min(1360, max(980, screen_w - 80))
+        height = min(860, max(620, screen_h - 120))
+        self.geometry(f"{width}x{height}")
+        self.minsize(900, 560)
+
     def _create_variables(self) -> None:
         self.path_vars["script"] = tk.StringVar(value=DETECTOR_MODULE)
         self.path_vars["input"] = tk.StringVar(value="")
-        self.path_vars["output"] = tk.StringVar(value="thermal_blob_valid_tracks.mp4")
-        self.path_vars["csv"] = tk.StringVar(value="thermal_blob_track_points.csv")
-        self.path_vars["summary_csv"] = tk.StringVar(value="thermal_blob_track_summary.csv")
+        self.path_vars["output"] = tk.StringVar(value="outputs/thermal_blob_valid_tracks.mp4")
+        self.path_vars["csv"] = tk.StringVar(value="outputs/thermal_blob_track_points.csv")
+        self.path_vars["summary_csv"] = tk.StringVar(value="outputs/thermal_blob_track_summary.csv")
         self.path_vars["roi"] = tk.StringVar(value="")
         self.path_vars["exclude_zones"] = tk.StringVar(value="")
         self.path_vars["draw_frame"] = tk.StringVar(value="0")
@@ -449,35 +510,46 @@ class ThermalDetectorGUI(tk.Tk):
             var.trace_add("write", lambda *_: self._refresh_command_preview())
 
     def _create_widgets(self) -> None:
-        root = ttk.Frame(self, padding=8)
-        root.pack(fill=tk.BOTH, expand=True)
+        # Persistent action bar: this is intentionally packed first at the bottom.
+        # It keeps Run/Stop accessible on small screens and with desktop scaling.
+        action_bar = ttk.Frame(self, padding=(8, 6, 8, 8))
+        action_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self._build_buttons(action_bar)
 
-        top = ttk.Frame(root)
-        top.pack(fill=tk.X)
+        root = ttk.Frame(self, padding=(8, 8, 8, 0))
+        root.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        self._build_file_section(top)
+        self._build_file_section(root)
 
-        middle = ttk.Frame(root)
+        # Resizable horizontal split. Parameters get more space by default,
+        # while the log panel remains useful but no longer dominates the UI.
+        middle = tk.PanedWindow(
+            root,
+            orient=tk.HORIZONTAL,
+            sashwidth=8,
+            sashrelief=tk.RAISED,
+            bd=0,
+        )
         middle.pack(fill=tk.BOTH, expand=True, pady=(8, 8))
 
         left = ttk.Frame(middle)
-        left.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
-
         right = ttk.Frame(middle)
-        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
+
+        screen_w = self.winfo_screenwidth()
+        parameter_width = max(720, min(980, int(screen_w * 0.46)))
+        log_width = max(420, min(760, int(screen_w * 0.28)))
+
+        middle.add(left, minsize=620, width=parameter_width)
+        middle.add(right, minsize=360, width=log_width)
 
         self._build_parameter_section(left)
         self._build_command_and_log_section(right)
 
-        bottom = ttk.Frame(root)
-        bottom.pack(fill=tk.X)
-        self._build_buttons(bottom)
-
     def _build_file_section(self, parent: ttk.Frame) -> None:
-        frame = ttk.LabelFrame(parent, text="Files")
+        frame = ttk.LabelFrame(parent, text="Files", padding=6)
         frame.pack(fill=tk.X)
 
-        self._path_row(frame, "Detector script", "script", self._browse_script, row=0)
+        self._path_row(frame, "Detector script/module", "script", self._browse_script, row=0)
         self._path_row(frame, "Input video", "input", self._browse_input, row=1)
         self._path_row(frame, "Output video", "output", self._browse_output, row=2)
         self._path_row(frame, "Track points CSV", "csv", self._browse_csv, row=3)
@@ -495,67 +567,31 @@ class ThermalDetectorGUI(tk.Tk):
         notebook = ttk.Notebook(parent)
         notebook.pack(fill=tk.BOTH, expand=True)
 
-        tab_detect = ttk.Frame(notebook, padding=8)
-        tab_track = ttk.Frame(notebook, padding=8)
-        tab_filter = ttk.Frame(notebook, padding=8)
-        tab_bg = ttk.Frame(notebook, padding=8)
+        tab_defs = [
+            ("Detection", [
+                "max_frames", "threshold", "motion_threshold", "min_area", "max_area",
+                "min_width", "min_height", "max_width", "max_height", "morph_open", "morph_dilate",
+            ]),
+            ("Tracking", ["max_link_distance", "max_gap_frames", "min_track_lifetime", "trail_length"]),
+            ("Track filters", [
+                "min_track_displacement", "min_track_path_length", "min_mean_speed", "max_mean_speed",
+                "min_directionality", "max_detections_per_frame",
+            ]),
+            ("Background", ["background_frames", "background_stride", "background_percentile"]),
+        ]
+
+        for title, keys in tab_defs:
+            scroll = ScrollableFrame(notebook, padding=0)
+            notebook.add(scroll, text=title)
+            self._params_grid(scroll.inner, keys)
+
         tab_masks = ttk.Frame(notebook, padding=8)
-        tab_flags = ttk.Frame(notebook, padding=8)
-
-        notebook.add(tab_detect, text="Detection")
-        notebook.add(tab_track, text="Tracking")
-        notebook.add(tab_filter, text="Track filters")
-        notebook.add(tab_bg, text="Background")
         notebook.add(tab_masks, text="ROI / exclude")
-        notebook.add(tab_flags, text="Flags")
-
-        self._params_grid(
-            tab_detect,
-            [
-                "max_frames",
-                "threshold",
-                "motion_threshold",
-                "min_area",
-                "max_area",
-                "min_width",
-                "min_height",
-                "max_width",
-                "max_height",
-                "morph_open",
-                "morph_dilate",
-            ],
-        )
-        self._params_grid(
-            tab_track,
-            [
-                "max_link_distance",
-                "max_gap_frames",
-                "min_track_lifetime",
-                "trail_length",
-            ],
-        )
-        self._params_grid(
-            tab_filter,
-            [
-                "min_track_displacement",
-                "min_track_path_length",
-                "min_mean_speed",
-                "max_mean_speed",
-                "min_directionality",
-                "max_detections_per_frame",
-            ],
-        )
-        self._params_grid(
-            tab_bg,
-            [
-                "background_frames",
-                "background_stride",
-                "background_percentile",
-            ],
-        )
-
         self._build_mask_tab(tab_masks)
-        self._build_flags_tab(tab_flags)
+
+        tab_flags_scroll = ScrollableFrame(notebook, padding=0)
+        notebook.add(tab_flags_scroll, text="Flags")
+        self._build_flags_tab(tab_flags_scroll.inner)
 
         presets = ttk.LabelFrame(parent, text="Quick presets", padding=8)
         presets.pack(fill=tk.X, pady=(8, 0))
@@ -572,25 +608,19 @@ class ThermalDetectorGUI(tk.Tk):
 
         ttk.Label(parent, text="Parameter").grid(row=0, column=0, sticky="w", padx=4, pady=(0, 6))
         ttk.Label(parent, text="Value").grid(row=0, column=1, sticky="w", padx=4, pady=(0, 6))
-        ttk.Label(parent, text="Type").grid(row=0, column=2, sticky="w", padx=4, pady=(0, 6))
-        ttk.Label(parent, text="Explanation").grid(row=0, column=3, sticky="w", padx=4, pady=(0, 6))
+        ttk.Label(parent, text="Explanation").grid(row=0, column=2, sticky="w", padx=4, pady=(0, 6))
 
         for row, key in enumerate(keys, start=1):
             _flag, typ, _default, label, explanation = meta[key]
             ttk.Label(parent, text=label).grid(row=row, column=0, sticky="nw", padx=4, pady=4)
-            entry = ttk.Entry(parent, textvariable=self.num_vars[key], width=14)
+            entry = ttk.Entry(parent, textvariable=self.num_vars[key], width=10)
             entry.grid(row=row, column=1, sticky="nw", padx=4, pady=4)
-            ttk.Label(parent, text=typ).grid(row=row, column=2, sticky="nw", padx=4, pady=4)
+            explanation_label = ttk.Label(parent, text=f"{typ}. {explanation}", wraplength=520, justify=tk.LEFT)
+            explanation_label.grid(row=row, column=2, sticky="nw", padx=8, pady=4)
 
-            explanation_label = ttk.Label(
-                parent,
-                text=explanation,
-                wraplength=360,
-                justify=tk.LEFT,
-            )
-            explanation_label.grid(row=row, column=3, sticky="nw", padx=8, pady=4)
-
-        parent.columnconfigure(3, weight=1)
+        parent.columnconfigure(0, minsize=150)
+        parent.columnconfigure(1, minsize=90)
+        parent.columnconfigure(2, weight=1, minsize=480)
 
     def _build_mask_tab(self, parent: ttk.Frame) -> None:
         drawing_frame = ttk.LabelFrame(parent, text="Draw rectangles from video frame", padding=8)
@@ -600,6 +630,7 @@ class ThermalDetectorGUI(tk.Tk):
             drawing_frame,
             text="Use this to draw ROI and exclude zones with the mouse instead of typing pixel coordinates.",
             justify=tk.LEFT,
+            wraplength=620,
         ).grid(row=0, column=0, columnspan=4, sticky="w", padx=4, pady=(0, 6))
 
         ttk.Label(drawing_frame, text="Frame index").grid(row=1, column=0, sticky="w", padx=4, pady=3)
@@ -610,6 +641,7 @@ class ThermalDetectorGUI(tk.Tk):
             drawing_frame,
             text="Tip: use frame 0 first. If it is too dark/empty, choose another frame where the background is clear.",
             justify=tk.LEFT,
+            wraplength=620,
         ).grid(row=2, column=0, columnspan=4, sticky="w", padx=4, pady=(4, 0))
 
         drawing_frame.columnconfigure(3, weight=1)
@@ -664,22 +696,16 @@ class ThermalDetectorGUI(tk.Tk):
         for row, (key, _flag, label, _default, explanation) in enumerate(BOOLEAN_PARAMS, start=1):
             cb = ttk.Checkbutton(parent, text=label, variable=self.bool_vars[key])
             cb.grid(row=row, column=0, sticky="nw", padx=4, pady=4)
-
-            explanation_label = ttk.Label(
-                parent,
-                text=explanation,
-                wraplength=430,
-                justify=tk.LEFT,
-            )
+            explanation_label = ttk.Label(parent, text=explanation, wraplength=520, justify=tk.LEFT)
             explanation_label.grid(row=row, column=1, sticky="nw", padx=8, pady=4)
 
-        parent.columnconfigure(1, weight=1)
+        parent.columnconfigure(1, weight=1, minsize=480)
 
     def _build_command_and_log_section(self, parent: ttk.Frame) -> None:
         command_frame = ttk.LabelFrame(parent, text="Generated command", padding=6)
         command_frame.pack(fill=tk.X)
 
-        self.command_text = tk.Text(command_frame, height=5, wrap=tk.WORD)
+        self.command_text = tk.Text(command_frame, height=4, wrap=tk.WORD)
         self.command_text.pack(fill=tk.X, expand=False)
 
         ttk.Button(command_frame, text="Copy command", command=self._copy_command).pack(anchor="e", pady=(4, 0))
@@ -687,20 +713,28 @@ class ThermalDetectorGUI(tk.Tk):
         log_frame = ttk.LabelFrame(parent, text="Run log", padding=6)
         log_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
 
-        self.log_text = ScrolledText(log_frame, height=20, wrap=tk.WORD)
+        self.log_text = ScrolledText(log_frame, height=12, wrap=tk.WORD)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
     def _build_buttons(self, parent: ttk.Frame) -> None:
-        self.run_button = ttk.Button(parent, text="Run detector", command=self._run_detector)
+        primary = ttk.Frame(parent)
+        primary.pack(fill=tk.X)
+
+        self.run_button = ttk.Button(primary, text="Run detector", command=self._run_detector)
         self.run_button.pack(side=tk.LEFT, padx=(0, 6))
 
-        self.stop_button = ttk.Button(parent, text="Stop", command=self._stop_detector, state=tk.DISABLED)
+        self.stop_button = ttk.Button(primary, text="Stop", command=self._stop_detector, state=tk.DISABLED)
         self.stop_button.pack(side=tk.LEFT, padx=6)
 
-        ttk.Button(parent, text="Clear log", command=self._clear_log).pack(side=tk.LEFT, padx=6)
-        ttk.Button(parent, text="Save preset JSON", command=self._save_preset).pack(side=tk.LEFT, padx=6)
-        ttk.Button(parent, text="Load preset JSON", command=self._load_preset).pack(side=tk.LEFT, padx=6)
-        ttk.Button(parent, text="Open output folder", command=self._open_output_folder).pack(side=tk.LEFT, padx=6)
+        ttk.Label(primary, text="Run/Stop stay visible here.").pack(side=tk.LEFT, padx=12)
+
+        secondary = ttk.Frame(parent)
+        secondary.pack(fill=tk.X, pady=(6, 0))
+
+        ttk.Button(secondary, text="Clear log", command=self._clear_log).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(secondary, text="Save preset JSON", command=self._save_preset).pack(side=tk.LEFT, padx=6)
+        ttk.Button(secondary, text="Load preset JSON", command=self._load_preset).pack(side=tk.LEFT, padx=6)
+        ttk.Button(secondary, text="Open output folder", command=self._open_output_folder).pack(side=tk.LEFT, padx=6)
 
     def _browse_script(self) -> None:
         path = filedialog.askopenfilename(
@@ -753,10 +787,10 @@ class ThermalDetectorGUI(tk.Tk):
 
     def _suggest_outputs_from_input(self, input_path: Path) -> None:
         stem = input_path.stem
-        parent = input_path.parent
-        self.path_vars["output"].set(str(parent / f"{stem}_valid_tracks.mp4"))
-        self.path_vars["csv"].set(str(parent / f"{stem}_track_points.csv"))
-        self.path_vars["summary_csv"].set(str(parent / f"{stem}_track_summary.csv"))
+        output_dir = Path("outputs")
+        self.path_vars["output"].set(str(output_dir / f"{stem}_valid_tracks.mp4"))
+        self.path_vars["csv"].set(str(output_dir / f"{stem}_track_points.csv"))
+        self.path_vars["summary_csv"].set(str(output_dir / f"{stem}_track_summary.csv"))
 
     def _preset_current_defaults(self) -> None:
         values = {
@@ -853,7 +887,7 @@ class ThermalDetectorGUI(tk.Tk):
         elif script_or_module == DETECTOR_MODULE or "." in script_or_module:
             cmd = [sys.executable, "-u", "-m", script_or_module, "--input", input_video]
         else:
-            raise ValueError(f"Detector script not found:\n{script_or_module}")
+            raise ValueError(f"Detector script/module not found:\n{script_or_module}")
 
         output = self.path_vars["output"].get().strip()
         csv_path = self.path_vars["csv"].get().strip()
@@ -963,15 +997,6 @@ class ThermalDetectorGUI(tk.Tk):
         script_or_module = self.path_vars["script"].get().strip()
         script_path = Path(script_or_module)
         cwd = str(script_path.parent) if script_path.exists() else str(Path.cwd())
-        env = os.environ.copy()
-        source_dir = str(Path(__file__).resolve().parent)
-        existing_pythonpath = env.get("PYTHONPATH")
-        if existing_pythonpath:
-            paths = existing_pythonpath.split(os.pathsep)
-            if source_dir not in paths:
-                env["PYTHONPATH"] = os.pathsep.join([source_dir, existing_pythonpath])
-        else:
-            env["PYTHONPATH"] = source_dir
 
         self.append_log("\n=== RUN START ===\n")
         self.append_log(subprocess.list2cmdline(cmd) + "\n\n")
@@ -988,7 +1013,6 @@ class ThermalDetectorGUI(tk.Tk):
                 stdin=subprocess.DEVNULL,
                 text=True,
                 bufsize=1,
-                env=env,
                 encoding="utf-8",
                 errors="replace",
             )
@@ -1004,7 +1028,6 @@ class ThermalDetectorGUI(tk.Tk):
 
     def _read_process_output(self) -> None:
         assert self.process is not None
-
         proc = self.process
         try:
             if proc.stdout is not None:
