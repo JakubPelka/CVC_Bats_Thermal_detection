@@ -26,7 +26,7 @@ Other common causes:
 ## Basic test
 
 ```bash
-pip install opencv-python numpy
+pip install -r requirements.txt
 
 PYTHONPATH=src python -m thermal_blob_detector --input examples/sample.mp4 --output outputs/debug.mp4 --csv outputs/tracks.csv --show
 ```
@@ -40,7 +40,7 @@ PYTHONPATH=src python -m thermal_blob_detector \
   --input examples/sample.mp4 \
   --output outputs/debug_diagnostic.mp4 \
   --csv outputs/tracks_diagnostic.csv \
-  --draw-all-candidates \
+  --draw-all-tracks \
   --min-track-lifetime 1 \
   --max-link-distance 120 \
   --max-area 1200 \
@@ -76,13 +76,13 @@ PYTHONPATH=src python -m thermal_blob_detector \
 | `--morph-dilate` | Expands detected blobs | If objects merge with hot background, lower to 0 |
 | `--motion-gate` | Requires frame-to-frame movement | Use only after basic detection is stable |
 
-## New v2 behavior
+## Current track drawing behavior
 
-- Temporary tracks are drawn by default as `tmp <id>`.
-- Confirmed tracks are drawn as `ID <id>`.
+- Valid flight-like tracks are drawn by default.
+- Use `--draw-all-tracks` to draw invalid/static/noisy tracks too.
 - The tracker uses a simple velocity prediction by default.
 - Use `--no-prediction` to return to pure nearest-neighbour tracking.
-- Use `--hide-unconfirmed-tracks` to hide temporary tracks.
+- Use `--hide-inactive-tracks` to hide inactive tracks.
 
 ## Integration note
 

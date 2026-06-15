@@ -1,3 +1,12 @@
+Metadata-Version: 2.4
+Name: cvc-bats-thermal-detection
+Version: 0.1.0
+Summary: Thermal video blob detection and track filtering for bat monitoring.
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy
+Requires-Dist: opencv-python
+
 # CVC Bats Thermal Detection
 
 Thermal video blob detection and simple track filtering for bat monitoring.
@@ -24,12 +33,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-This installs the two console commands shown below. If you change
-`pyproject.toml`, run `pip install -e .` again so the editable install is
-refreshed.
-
-For a no-install quick setup, install only the runtime requirements and use the
-`python src/...` or `PYTHONPATH=src python -m ...` commands:
+For a non-editable quick setup, install the runtime requirements:
 
 ```bash
 pip install -r requirements.txt
@@ -37,7 +41,7 @@ pip install -r requirements.txt
 
 ## Run the detector
 
-Installed command, after `pip install -e .`:
+Installed command:
 
 ```bash
 thermal-blob-detector \
@@ -53,7 +57,7 @@ Module form:
 PYTHONPATH=src python -m thermal_blob_detector --input examples/sample.mp4
 ```
 
-Direct source wrapper:
+Legacy wrapper:
 
 ```bash
 python src/thermal_blob_detector_mvp_v3_valid_tracks.py --input examples/sample.mp4
@@ -61,7 +65,7 @@ python src/thermal_blob_detector_mvp_v3_valid_tracks.py --input examples/sample.
 
 ## Run the GUI
 
-Installed command, after `pip install -e .`:
+Installed command:
 
 ```bash
 thermal-blob-detector-gui
@@ -73,7 +77,7 @@ Module form:
 PYTHONPATH=src python -m gui
 ```
 
-Direct source wrapper:
+Legacy wrapper:
 
 ```bash
 python src/thermal_blob_detector_gui.py

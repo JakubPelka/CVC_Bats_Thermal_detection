@@ -1,0 +1,3 @@
+[console_scripts]
+thermal-blob-detector = thermal_blob_detector:main
+thermal-blob-detector-gui = gui:main

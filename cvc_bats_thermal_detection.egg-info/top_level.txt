@@ -1,0 +1,4 @@
+gui
+thermal_blob_detector
+thermal_blob_detector_gui
+thermal_blob_detector_mvp_v3_valid_tracks

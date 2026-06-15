@@ -963,6 +963,15 @@ class ThermalDetectorGUI(tk.Tk):
         script_or_module = self.path_vars["script"].get().strip()
         script_path = Path(script_or_module)
         cwd = str(script_path.parent) if script_path.exists() else str(Path.cwd())
+        env = os.environ.copy()
+        source_dir = str(Path(__file__).resolve().parent)
+        existing_pythonpath = env.get("PYTHONPATH")
+        if existing_pythonpath:
+            paths = existing_pythonpath.split(os.pathsep)
+            if source_dir not in paths:
+                env["PYTHONPATH"] = os.pathsep.join([source_dir, existing_pythonpath])
+        else:
+            env["PYTHONPATH"] = source_dir
 
         self.append_log("\n=== RUN START ===\n")
         self.append_log(subprocess.list2cmdline(cmd) + "\n\n")
@@ -979,6 +988,7 @@ class ThermalDetectorGUI(tk.Tk):
                 stdin=subprocess.DEVNULL,
                 text=True,
                 bufsize=1,
+                env=env,
                 encoding="utf-8",
                 errors="replace",
             )
