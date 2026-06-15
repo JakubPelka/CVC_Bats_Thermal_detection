@@ -44,7 +44,11 @@ thermal-blob-detector \
   --input examples/sample.mp4 \
   --output outputs/thermal_blob_valid_tracks.mp4 \
   --csv outputs/thermal_blob_track_points.csv \
-  --summary-csv outputs/thermal_blob_track_summary.csv
+  --summary-csv outputs/thermal_blob_track_summary.csv \
+  --crossings-csv outputs/crossings.csv \
+  --aoi-events-csv outputs/aoi_events.csv \
+  --activity-csv outputs/activity_by_time.csv \
+  --run-summary-json outputs/run_summary.json
 ```
 
 Module form:
@@ -58,6 +62,29 @@ Direct source wrapper:
 ```bash
 python src/thermal_blob_detector_mvp_v3_valid_tracks.py --input examples/sample.mp4
 ```
+
+
+## Track-based counting and statistics
+
+Counting runs after detection and uses tracks, not raw bright blobs. By default only valid flying tracks are counted. Use `--count-all-tracks` only for diagnostics.
+
+Example with one vertical counting line and one rectangular AOI:
+
+```bash
+PYTHONPATH=src python -m thermal_blob_detector \
+  --input examples/sample.mp4 \
+  --output outputs/sample_valid_tracks.mp4 \
+  --csv outputs/sample_track_points.csv \
+  --summary-csv outputs/sample_track_summary.csv \
+  --count-line midline,Middle,640,0,640,720,right_to_left,left_to_right \
+  --count-aoi roost,Roost,100,100,250,180 \
+  --crossings-csv outputs/sample_crossings.csv \
+  --aoi-events-csv outputs/sample_aoi_events.csv \
+  --activity-csv outputs/sample_activity_by_time.csv \
+  --run-summary-json outputs/sample_run_summary.json
+```
+
+You can also keep geometry in JSON and pass it with `--counting-config examples/counting_config_example.json`. The main statistics outputs are `crossings.csv`, `aoi_events.csv`, `activity_by_time.csv`, enhanced `track_summary.csv`, and `run_summary.json`.
 
 ## Run the GUI
 

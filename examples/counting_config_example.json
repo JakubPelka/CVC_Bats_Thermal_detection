@@ -1,0 +1,29 @@
+{
+  "lines": [
+    {
+      "id": "midline",
+      "name": "Middle",
+      "p1": [640, 0],
+      "p2": [640, 720],
+      "direction_labels": {
+        "positive": "right_to_left",
+        "negative": "left_to_right"
+      },
+      "enabled": true
+    }
+  ],
+  "aois": [
+    {
+      "id": "roost",
+      "name": "Roost",
+      "type": "rectangle",
+      "coordinates": [100, 100, 250, 180],
+      "enabled": true
+    }
+  ],
+  "line_crossing_epsilon": 1.0,
+  "min_frames_between_same_line_crossing": 3,
+  "aoi_boundary_debounce_frames": 3,
+  "activity_bin_seconds": 60.0,
+  "count_valid_tracks_only": true
+}

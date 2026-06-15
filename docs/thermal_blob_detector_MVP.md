@@ -8,7 +8,7 @@ Scope:
 - create simple centroid tracks,
 - export debug video,
 - export CSV with track points,
-- no line/AOI counting logic.
+- run track-based line/AOI counting and activity statistics after tracking.
 
 This version adds better diagnostics for the issue where very bright/fast objects may be detected but not drawn as confirmed tracks.
 
@@ -92,4 +92,27 @@ The detector still produces detections with:
 as_cvc_detection()
 ```
 
-This means it can later be used as an alternative detector backend for ComputerVisionCounter. Counting logic should remain outside this module.
+This means it can later be used as an alternative detector backend for ComputerVisionCounter. Counting logic lives in `counting_stats.py` and is called after tracking, so the detector still remains usable as a future CVC-style detector backend.
+
+## Counting and statistics outputs
+
+The detector now runs a track-based statistics layer after video processing. It counts valid flying tracks by default, not raw detections. Use `--count-all-tracks` only for diagnostics.
+
+Counting geometry can be passed directly:
+
+```bash
+PYTHONPATH=src python -m thermal_blob_detector \
+  --input examples/sample.mp4 \
+  --count-line midline,Middle,640,0,640,720,right_to_left,left_to_right \
+  --count-aoi roost,Roost,100,100,250,180
+```
+
+Or loaded from JSON:
+
+```bash
+PYTHONPATH=src python -m thermal_blob_detector \
+  --input examples/sample.mp4 \
+  --counting-config examples/counting_config_example.json
+```
+
+The default statistics files are `crossings.csv`, `aoi_events.csv`, `activity_by_time.csv`, enhanced `thermal_blob_track_summary.csv`, and `run_summary.json`.

@@ -78,6 +78,11 @@ NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
     ("background_percentile", "--background-percentile", "float", "50.0", "Background percentile", "50 = median background. Lower/higher can help with unusual thermal backgrounds."),
 
     ("trail_length", "--trail-length", "int", "0", "Trail length, 0 = full track", "Length of drawn trail. 0 draws full history; small values draw only a moving tail."),
+
+    ("activity_bin_seconds", "--activity-bin-seconds", "float", "60.0", "Activity bin seconds", "Time bin size for activity_by_time.csv."),
+    ("line_crossing_epsilon", "--line-crossing-epsilon", "float", "1.0", "Line crossing epsilon", "Tolerance around a counting line to avoid duplicate/noisy side changes."),
+    ("min_frames_between_same_line_crossing", "--min-frames-between-same-line-crossing", "int", "3", "Line crossing debounce", "Minimum frames between repeated crossings of the same line by one track."),
+    ("aoi_boundary_debounce_frames", "--aoi-boundary-debounce-frames", "int", "3", "AOI boundary debounce", "Minimum frames between repeated AOI events for one track near a boundary."),
 ]
 
 
@@ -90,6 +95,7 @@ BOOLEAN_PARAMS: List[Tuple[str, str, str, bool, str]] = [
     ("hide_inactive_tracks", "--hide-inactive-tracks", "Hide inactive tracks", False, "Draw only currently active tracks. Usually leave unchecked when reviewing full trajectories."),
     ("hide_roi_rectangle", "--hide-roi-rectangle", "Hide ROI rectangle", False, "Hides the ROI rectangle overlay if ROI is used."),
     ("hide_exclude_zones", "--hide-exclude-zones", "Hide exclude-zone rectangles", False, "Hides excluded-area rectangles on the preview/output video."),
+    ("count_all_tracks", "--count-all-tracks", "Count all tracks for diagnostics", False, "Counts invalid/static/noisy tracks too. Leave unchecked for final valid-track counting."),
 ]
 
 
@@ -494,6 +500,14 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["output"] = tk.StringVar(value="outputs/thermal_blob_valid_tracks.mp4")
         self.path_vars["csv"] = tk.StringVar(value="outputs/thermal_blob_track_points.csv")
         self.path_vars["summary_csv"] = tk.StringVar(value="outputs/thermal_blob_track_summary.csv")
+        self.path_vars["crossings_csv"] = tk.StringVar(value="outputs/crossings.csv")
+        self.path_vars["aoi_events_csv"] = tk.StringVar(value="outputs/aoi_events.csv")
+        self.path_vars["activity_csv"] = tk.StringVar(value="outputs/activity_by_time.csv")
+        self.path_vars["run_summary_json"] = tk.StringVar(value="outputs/run_summary.json")
+        self.path_vars["counting_config"] = tk.StringVar(value="")
+        self.path_vars["counting_config_out"] = tk.StringVar(value="")
+        self.path_vars["count_lines"] = tk.StringVar(value="")
+        self.path_vars["count_aois"] = tk.StringVar(value="")
         self.path_vars["roi"] = tk.StringVar(value="")
         self.path_vars["exclude_zones"] = tk.StringVar(value="")
         self.path_vars["draw_frame"] = tk.StringVar(value="0")
@@ -554,6 +568,10 @@ class ThermalDetectorGUI(tk.Tk):
         self._path_row(frame, "Output video", "output", self._browse_output, row=2)
         self._path_row(frame, "Track points CSV", "csv", self._browse_csv, row=3)
         self._path_row(frame, "Track summary CSV", "summary_csv", self._browse_summary_csv, row=4)
+        self._path_row(frame, "Crossings CSV", "crossings_csv", self._browse_crossings_csv, row=5)
+        self._path_row(frame, "AOI events CSV", "aoi_events_csv", self._browse_aoi_events_csv, row=6)
+        self._path_row(frame, "Activity CSV", "activity_csv", self._browse_activity_csv, row=7)
+        self._path_row(frame, "Run summary JSON", "run_summary_json", self._browse_run_summary_json, row=8)
 
         frame.columnconfigure(1, weight=1)
 
@@ -588,6 +606,10 @@ class ThermalDetectorGUI(tk.Tk):
         tab_masks = ttk.Frame(notebook, padding=8)
         notebook.add(tab_masks, text="ROI / exclude")
         self._build_mask_tab(tab_masks)
+
+        tab_counting = ttk.Frame(notebook, padding=8)
+        notebook.add(tab_counting, text="Counting / Statistics")
+        self._build_counting_tab(tab_counting)
 
         tab_flags_scroll = ScrollableFrame(notebook, padding=0)
         notebook.add(tab_flags_scroll, text="Flags")
@@ -689,6 +711,51 @@ class ThermalDetectorGUI(tk.Tk):
             exclude_zones_var=self.path_vars["exclude_zones"],
         )
 
+    def _build_counting_tab(self, parent: ttk.Frame) -> None:
+        ttk.Label(parent, text="Counting config JSON, optional").pack(anchor="w")
+        config_row = ttk.Frame(parent)
+        config_row.pack(fill=tk.X, pady=(2, 10))
+        ttk.Entry(config_row, textvariable=self.path_vars["counting_config"]).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Button(config_row, text="Browse", command=self._browse_counting_config).pack(side=tk.LEFT, padx=(4, 0))
+
+        ttk.Checkbutton(parent, text="Count all tracks for diagnostics", variable=self.bool_vars["count_all_tracks"]).pack(anchor="w", pady=(0, 10))
+
+        numeric_frame = ttk.LabelFrame(parent, text="Counting thresholds", padding=6)
+        numeric_frame.pack(fill=tk.X, pady=(0, 10))
+        for row, key in enumerate(["activity_bin_seconds", "line_crossing_epsilon", "min_frames_between_same_line_crossing", "aoi_boundary_debounce_frames"]):
+            label = next(item[4] for item in NUMERIC_PARAMS if item[0] == key)
+            ttk.Label(numeric_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=3)
+            ttk.Entry(numeric_frame, textvariable=self.num_vars[key], width=10).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+        numeric_frame.columnconfigure(2, weight=1)
+
+        ttk.Label(parent, text="Counting lines, one per line: id,name,x1,y1,x2,y2[,positive_label,negative_label]").pack(anchor="w")
+        self.count_lines_text = tk.Text(parent, height=5, width=42)
+        self.count_lines_text.pack(fill=tk.BOTH, expand=True, pady=(2, 10))
+
+        ttk.Label(parent, text="Rectangular AOIs, one per line: id,name,x,y,w,h").pack(anchor="w")
+        self.count_aois_text = tk.Text(parent, height=5, width=42)
+        self.count_aois_text.pack(fill=tk.BOTH, expand=True, pady=(2, 10))
+
+        ttk.Label(parent, text="Effective counting config JSON output, optional").pack(anchor="w")
+        ttk.Entry(parent, textvariable=self.path_vars["counting_config_out"]).pack(fill=tk.X, pady=(2, 0))
+
+        def sync_text_to_var(widget: tk.Text, key: str) -> None:
+            value = widget.get("1.0", tk.END).strip()
+            if self.path_vars[key].get() != value:
+                self.path_vars[key].set(value)
+
+        def sync_var_to_text(widget: tk.Text, key: str) -> None:
+            current = widget.get("1.0", tk.END).strip()
+            wanted = self.path_vars[key].get()
+            if current != wanted:
+                widget.delete("1.0", tk.END)
+                widget.insert("1.0", wanted)
+
+        for widget, key in ((self.count_lines_text, "count_lines"), (self.count_aois_text, "count_aois")):
+            widget.bind("<KeyRelease>", lambda _event, w=widget, k=key: sync_text_to_var(w, k))
+            widget.bind("<FocusOut>", lambda _event, w=widget, k=key: sync_text_to_var(w, k))
+            self.path_vars[key].trace_add("write", lambda *_args, w=widget, k=key: sync_var_to_text(w, k))
+
     def _build_flags_tab(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Option").grid(row=0, column=0, sticky="w", padx=4, pady=(0, 6))
         ttk.Label(parent, text="Explanation").grid(row=0, column=1, sticky="w", padx=8, pady=(0, 6))
@@ -785,12 +852,45 @@ class ThermalDetectorGUI(tk.Tk):
         if path:
             self.path_vars["summary_csv"].set(path)
 
+    def _browse_crossings_csv(self) -> None:
+        self._browse_save_path("Select crossings CSV", "crossings_csv", ".csv", [("CSV", "*.csv"), ("All files", "*.*")])
+
+    def _browse_aoi_events_csv(self) -> None:
+        self._browse_save_path("Select AOI events CSV", "aoi_events_csv", ".csv", [("CSV", "*.csv"), ("All files", "*.*")])
+
+    def _browse_activity_csv(self) -> None:
+        self._browse_save_path("Select activity CSV", "activity_csv", ".csv", [("CSV", "*.csv"), ("All files", "*.*")])
+
+    def _browse_run_summary_json(self) -> None:
+        self._browse_save_path("Select run summary JSON", "run_summary_json", ".json", [("JSON", "*.json"), ("All files", "*.*")])
+
+    def _browse_counting_config(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select counting config JSON",
+            filetypes=[("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if path:
+            self.path_vars["counting_config"].set(path)
+
+    def _browse_save_path(self, title: str, key: str, extension: str, filetypes) -> None:
+        path = filedialog.asksaveasfilename(
+            title=title,
+            defaultextension=extension,
+            filetypes=filetypes,
+        )
+        if path:
+            self.path_vars[key].set(path)
+
     def _suggest_outputs_from_input(self, input_path: Path) -> None:
         stem = input_path.stem
         output_dir = Path("outputs")
         self.path_vars["output"].set(str(output_dir / f"{stem}_valid_tracks.mp4"))
         self.path_vars["csv"].set(str(output_dir / f"{stem}_track_points.csv"))
         self.path_vars["summary_csv"].set(str(output_dir / f"{stem}_track_summary.csv"))
+        self.path_vars["crossings_csv"].set(str(output_dir / f"{stem}_crossings.csv"))
+        self.path_vars["aoi_events_csv"].set(str(output_dir / f"{stem}_aoi_events.csv"))
+        self.path_vars["activity_csv"].set(str(output_dir / f"{stem}_activity_by_time.csv"))
+        self.path_vars["run_summary_json"].set(str(output_dir / f"{stem}_run_summary.json"))
 
     def _preset_current_defaults(self) -> None:
         values = {
@@ -892,6 +992,11 @@ class ThermalDetectorGUI(tk.Tk):
         output = self.path_vars["output"].get().strip()
         csv_path = self.path_vars["csv"].get().strip()
         summary_csv = self.path_vars["summary_csv"].get().strip()
+        crossings_csv = self.path_vars["crossings_csv"].get().strip()
+        aoi_events_csv = self.path_vars["aoi_events_csv"].get().strip()
+        activity_csv = self.path_vars["activity_csv"].get().strip()
+        run_summary_json = self.path_vars["run_summary_json"].get().strip()
+        counting_config_out = self.path_vars["counting_config_out"].get().strip()
 
         if output:
             cmd += ["--output", output]
@@ -899,6 +1004,16 @@ class ThermalDetectorGUI(tk.Tk):
             cmd += ["--csv", csv_path]
         if summary_csv:
             cmd += ["--summary-csv", summary_csv]
+        if crossings_csv:
+            cmd += ["--crossings-csv", crossings_csv]
+        if aoi_events_csv:
+            cmd += ["--aoi-events-csv", aoi_events_csv]
+        if activity_csv:
+            cmd += ["--activity-csv", activity_csv]
+        if run_summary_json:
+            cmd += ["--run-summary-json", run_summary_json]
+        if counting_config_out:
+            cmd += ["--counting-config-out", counting_config_out]
 
         self._validate_numeric_params()
 
@@ -922,6 +1037,18 @@ class ThermalDetectorGUI(tk.Tk):
         for zone in self._parse_exclude_zones():
             self._validate_rect(zone, "Exclude zone")
             cmd += ["--exclude-zone", zone]
+
+        counting_config = self.path_vars["counting_config"].get().strip()
+        if counting_config:
+            cmd += ["--counting-config", counting_config]
+        for line in self._parse_multiline_values("count_lines"):
+            self._validate_count_line(line)
+            cmd += ["--count-line", line]
+        for aoi in self._parse_multiline_values("count_aois"):
+            self._validate_count_aoi(aoi)
+            cmd += ["--count-aoi", aoi]
+        if self.bool_vars.get("count_all_tracks") and self.bool_vars["count_all_tracks"].get():
+            cmd.append("--count-all-tracks")
 
         return cmd
 
@@ -961,6 +1088,31 @@ class ThermalDetectorGUI(tk.Tk):
         normalized = raw.replace(";", "\n")
         zones = [line.strip() for line in normalized.splitlines() if line.strip()]
         return zones
+
+    def _parse_multiline_values(self, key: str) -> List[str]:
+        raw = self.path_vars[key].get().strip()
+        if not raw:
+            return []
+        normalized = raw.replace(";", "\n")
+        return [line.strip() for line in normalized.splitlines() if line.strip()]
+
+    def _validate_count_line(self, value: str) -> None:
+        parts = [p.strip() for p in value.split(",")]
+        if len(parts) not in (6, 8):
+            raise ValueError(f"Counting line must use id,name,x1,y1,x2,y2[,positive_label,negative_label]. Got: {value}")
+        try:
+            [float(p) for p in parts[2:6]]
+        except ValueError as exc:
+            raise ValueError(f"Counting line coordinates must be numeric. Got: {value}") from exc
+
+    def _validate_count_aoi(self, value: str) -> None:
+        parts = [p.strip() for p in value.split(",")]
+        if len(parts) != 6:
+            raise ValueError(f"Counting AOI must use id,name,x,y,w,h. Got: {value}")
+        try:
+            [float(p) for p in parts[2:6]]
+        except ValueError as exc:
+            raise ValueError(f"Counting AOI coordinates must be numeric. Got: {value}") from exc
 
     def _refresh_command_preview(self) -> None:
         if not hasattr(self, "command_text"):

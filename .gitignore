@@ -2,3 +2,16 @@
 /.venv
 *.mp4
 /src/outputs
+samples/*
+!samples/README.md
+outputs/*
+!outputs/README.md
+output/*
+!output/README.md
+*.avi
+*.mov
+*.mkv
+*.csv
+*.json
+!examples/*.json
+!tests/data/*.csv

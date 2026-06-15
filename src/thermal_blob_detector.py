@@ -10,7 +10,7 @@ Scope:
 - Filter tracks by flight-like movement metrics to reduce camera artefacts.
 - Draw only thin track trails by default.
 - Export CSV with detections, track metrics and validity flags.
-- No line/AOI counting logic is included here.
+- Track-based line/AOI counting and activity statistics run after tracking.
 
 Typical use:
     python -m thermal_blob_detector --input examples/sample.mp4 --output outputs/tracks.mp4 --csv outputs/tracks.csv --show
@@ -30,6 +30,20 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
+
+from counting_stats import (
+    CountingConfig,
+    analyze_tracks,
+    aoi_from_cli,
+    line_from_cli,
+    load_counting_config,
+    write_activity_csv,
+    write_aoi_events_csv,
+    write_counting_config_json,
+    write_crossings_csv,
+    write_run_summary_json,
+    write_track_summary_csv as write_counting_track_summary_csv,
+)
 
 
 Point = Tuple[float, float]
@@ -740,6 +754,11 @@ def process_video(args: argparse.Namespace) -> None:
     output_path = Path(args.output) if args.output else None
     csv_path = Path(args.csv) if args.csv else None
     summary_csv_path = Path(args.summary_csv) if args.summary_csv else None
+    crossings_csv_path = Path(args.crossings_csv) if args.crossings_csv else None
+    aoi_events_csv_path = Path(args.aoi_events_csv) if args.aoi_events_csv else None
+    activity_csv_path = Path(args.activity_csv) if args.activity_csv else None
+    run_summary_json_path = Path(args.run_summary_json) if args.run_summary_json else None
+    counting_config_out_path = Path(args.counting_config_out) if args.counting_config_out else None
 
     cfg = ThermalBlobConfig(
         threshold=args.threshold,
@@ -838,9 +857,41 @@ def process_video(args: argparse.Namespace) -> None:
         write_track_points_csv(csv_path, detector.tracks, fps, cfg)
         print(f"CSV written: {csv_path}")
 
+    counting_cfg = build_counting_config_from_args(args)
+    counting_results = analyze_tracks(
+        tracks=detector.tracks.values(),
+        fps=fps,
+        cfg=counting_cfg,
+        is_valid_track=lambda track: is_valid_flying_track(track, cfg),
+        input_video=str(input_path),
+        frame_count_processed=processed_frames,
+        parameter_preset=args.parameter_preset,
+        notes=f"Skipped noisy detection frames: {detector.skipped_detection_frames}",
+    )
+
     if summary_csv_path:
-        write_track_summary_csv(summary_csv_path, detector.tracks, cfg)
-        print(f"Summary CSV written: {summary_csv_path}")
+        write_counting_track_summary_csv(summary_csv_path, counting_results.track_summaries)
+        print(f"Enhanced track summary CSV written: {summary_csv_path}")
+
+    if crossings_csv_path:
+        write_crossings_csv(crossings_csv_path, counting_results.crossings)
+        print(f"Crossings CSV written: {crossings_csv_path}")
+
+    if aoi_events_csv_path:
+        write_aoi_events_csv(aoi_events_csv_path, counting_results.aoi_events)
+        print(f"AOI events CSV written: {aoi_events_csv_path}")
+
+    if activity_csv_path:
+        write_activity_csv(activity_csv_path, counting_results.activity_rows)
+        print(f"Activity CSV written: {activity_csv_path}")
+
+    if run_summary_json_path:
+        write_run_summary_json(run_summary_json_path, counting_results.run_summary)
+        print(f"Run summary JSON written: {run_summary_json_path}")
+
+    if counting_config_out_path:
+        write_counting_config_json(counting_config_out_path, counting_cfg)
+        print(f"Counting config JSON written: {counting_config_out_path}")
 
     if output_path:
         print(f"Debug video written: {output_path}")
@@ -854,19 +905,50 @@ def process_video(args: argparse.Namespace) -> None:
     print(f"All tracks: {len(all_tracks)}")
     print(f"Confirmed tracks >= {cfg.min_track_lifetime} detections: {len(confirmed)}")
     print(f"Valid flying tracks: {len(valid)}")
+    print(f"Line crossings: {len(counting_results.crossings)}")
+    print(f"AOI events: {len(counting_results.aoi_events)}")
+
+
+def build_counting_config_from_args(args: argparse.Namespace) -> CountingConfig:
+    counting_cfg = CountingConfig()
+
+    if args.counting_config:
+        counting_cfg = load_counting_config(Path(args.counting_config))
+
+    for value in args.count_line or []:
+        counting_cfg.lines.append(line_from_cli(value))
+    for value in args.count_aoi or []:
+        counting_cfg.aois.append(aoi_from_cli(value))
+
+    if args.count_all_tracks:
+        counting_cfg.count_valid_tracks_only = False
+    if args.activity_bin_seconds is not None:
+        counting_cfg.activity_bin_seconds = args.activity_bin_seconds
+    if args.line_crossing_epsilon is not None:
+        counting_cfg.line_crossing_epsilon = args.line_crossing_epsilon
+    if args.min_frames_between_same_line_crossing is not None:
+        counting_cfg.min_frames_between_same_line_crossing = args.min_frames_between_same_line_crossing
+    if args.aoi_boundary_debounce_frames is not None:
+        counting_cfg.aoi_boundary_debounce_frames = args.aoi_boundary_debounce_frames
+    return counting_cfg
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Detect and track bright moving blobs in tripod thermal video. "
-            "Draws valid flight-like tracks only by default. No line/AOI counting included."
+            "Draws valid flight-like tracks by default and can export track-based line/AOI counting statistics."
         )
     )
     parser.add_argument("--input", required=True, help="Input thermal video file")
     parser.add_argument("--output", default="thermal_blob_valid_tracks.mp4", help="Output debug video path")
     parser.add_argument("--csv", default="thermal_blob_track_points.csv", help="Output CSV path for per-detection track points")
-    parser.add_argument("--summary-csv", default="thermal_blob_track_summary.csv", help="Output CSV path for per-track summary")
+    parser.add_argument("--summary-csv", default="thermal_blob_track_summary.csv", help="Enhanced output CSV path for per-track summary")
+    parser.add_argument("--crossings-csv", default="crossings.csv", help="Output CSV path for line crossing events")
+    parser.add_argument("--aoi-events-csv", default="aoi_events.csv", help="Output CSV path for AOI entry/exit events")
+    parser.add_argument("--activity-csv", default="activity_by_time.csv", help="Output CSV path for activity time bins")
+    parser.add_argument("--run-summary-json", default="run_summary.json", help="Output JSON path for compact run summary")
+    parser.add_argument("--counting-config-out", default="", help="Optional path to save the effective counting config JSON")
     parser.add_argument("--show", action="store_true", help="Show live preview window")
     parser.add_argument("--max-frames", type=int, default=0, help="Optional processing limit for quick tests")
 
@@ -911,6 +993,27 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trail-length", type=int, default=0, help="Recent points drawn per track. 0 = full track history")
     parser.add_argument("--hide-roi-rectangle", action="store_true", help="Do not draw ROI rectangle")
     parser.add_argument("--hide-exclude-zones", action="store_true", help="Do not draw exclusion-zone rectangles")
+
+    parser.add_argument("--counting-config", default="", help="Optional JSON file with counting lines, AOIs and counting settings")
+    parser.add_argument(
+        "--count-line",
+        action="append",
+        default=None,
+        help="Counting line as id,name,x1,y1,x2,y2[,positive_label,negative_label]. Can be repeated.",
+    )
+    parser.add_argument(
+        "--count-aoi",
+        action="append",
+        default=None,
+        help="Rectangular counting AOI as id,name,x,y,w,h. Can be repeated.",
+    )
+    parser.add_argument("--count-all-tracks", action="store_true", help="Diagnostic counting mode: count all tracks, not only valid flying tracks")
+    parser.add_argument("--activity-bin-seconds", type=float, default=None, help="Activity statistics bin size in seconds")
+    parser.add_argument("--line-crossing-epsilon", type=float, default=None, help="Pixel-side tolerance for line crossing tests")
+    parser.add_argument("--min-frames-between-same-line-crossing", type=int, default=None, help="Debounce repeated crossings of the same line by one track")
+    parser.add_argument("--aoi-boundary-debounce-frames", type=int, default=None, help="Debounce repeated AOI entry/exit events near a boundary")
+    parser.add_argument("--parameter-preset", default="custom", help="Preset label written to run_summary.json")
+
     parser.add_argument("--fourcc", default="mp4v", help="Output video codec fourcc, e.g. mp4v or XVID")
     return parser
 

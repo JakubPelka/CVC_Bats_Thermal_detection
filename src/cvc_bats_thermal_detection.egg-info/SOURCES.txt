@@ -1,5 +1,6 @@
 README.md
 pyproject.toml
+src/counting_stats.py
 src/gui.py
 src/thermal_blob_detector.py
 src/thermal_blob_detector_gui.py
@@ -10,3 +11,4 @@ src/cvc_bats_thermal_detection.egg-info/dependency_links.txt
 src/cvc_bats_thermal_detection.egg-info/entry_points.txt
 src/cvc_bats_thermal_detection.egg-info/requires.txt
 src/cvc_bats_thermal_detection.egg-info/top_level.txt
+tests/test_counting_stats.py
