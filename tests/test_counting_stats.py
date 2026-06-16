@@ -1,4 +1,6 @@
 import unittest
+import sys
+import types
 from dataclasses import dataclass
 
 from counting_stats import (
@@ -10,6 +12,9 @@ from counting_stats import (
     counting_config_from_dict,
     detect_line_crossings,
 )
+
+sys.modules.setdefault("cv2", types.SimpleNamespace())
+from thermal_blob_detector import BlobDetection, LiveCounting, Track as LiveTrack
 
 
 @dataclass
@@ -63,7 +68,7 @@ class CountingStatsTest(unittest.TestCase):
 
         self.assertEqual(detect_line_crossings([track], fps=10.0, cfg=cfg), [])
 
-    def test_line_crossing_debounce_suppresses_fast_jitter(self):
+    def test_line_crossing_counts_track_once_per_line(self):
         cfg = CountingConfig(
             lines=[CountingLine("mid", "Middle", (0, 0), (0, 10))],
             line_crossing_epsilon=0.0,
@@ -73,7 +78,7 @@ class CountingStatsTest(unittest.TestCase):
 
         events = detect_line_crossings([track], fps=10.0, cfg=cfg)
 
-        self.assertEqual([event.frame for event in events], [1, 4])
+        self.assertEqual([event.frame for event in events], [1])
 
     def test_aoi_entry_and_exit_events(self):
         cfg = CountingConfig(aois=[CountingAoi("box", "Box", (10, 10, 20, 20))])
@@ -82,6 +87,59 @@ class CountingStatsTest(unittest.TestCase):
         events = detect_aoi_events([track], fps=10.0, cfg=cfg)
 
         self.assertEqual([(event.event_type, event.frame) for event in events], [("entry", 1), ("exit", 4)])
+
+    def test_aoi_exit_includes_dwell_time(self):
+        cfg = CountingConfig(
+            aois=[CountingAoi("box", "Box", (10, 10, 20, 20))],
+            aoi_boundary_debounce_frames=0,
+        )
+        track = make_track(1, [(0, 0), (15, 15), (20, 20), (40, 40)])
+
+        events = detect_aoi_events([track], fps=10.0, cfg=cfg)
+
+        self.assertEqual([(event.event_type, event.frame) for event in events], [("entry", 1), ("exit", 3)])
+        self.assertEqual(events[1].start_frame, 1)
+        self.assertEqual(events[1].end_frame, 3)
+        self.assertEqual(events[1].dwell_time_s, 0.2)
+
+    def test_aoi_track_starting_inside_counts_as_seen(self):
+        cfg = CountingConfig(
+            aois=[CountingAoi("box", "Box", (10, 10, 20, 20))],
+            aoi_boundary_debounce_frames=0,
+        )
+        track = make_track(1, [(15, 15), (20, 20), (40, 40)])
+
+        events = detect_aoi_events([track], fps=10.0, cfg=cfg)
+
+        self.assertEqual([(event.event_type, event.frame) for event in events], [("entry", 0), ("exit", 2)])
+        self.assertEqual(events[1].dwell_time_s, 0.2)
+
+    def test_aoi_counts_one_visit_per_track(self):
+        cfg = CountingConfig(
+            aois=[CountingAoi("box", "Box", (10, 10, 20, 20))],
+            aoi_boundary_debounce_frames=0,
+        )
+        track = make_track(1, [(0, 0), (15, 15), (40, 40), (15, 15), (40, 40)])
+
+        events = detect_aoi_events([track], fps=10.0, cfg=cfg)
+
+        self.assertEqual([(event.event_type, event.frame) for event in events], [("entry", 1), ("exit", 2)])
+
+    def test_live_aoi_in_only_counts_active_tracks_inside_aoi(self):
+        cfg = CountingConfig(
+            aois=[CountingAoi("box", "Box", (10, 10, 20, 20))],
+            count_valid_tracks_only=False,
+        )
+        live_counter = LiveCounting(cfg, fps=10.0, crossings_csv_path=None, aoi_events_csv_path=None, is_countable_track=lambda _track: True)
+        track = LiveTrack(track_id=1)
+        track.add_detection(BlobDetection(0, (15.0, 15.0), (14, 14, 2, 2), 4, 20.0, 30.0, 0.8))
+
+        live_counter.update([track], frame_idx=0)
+        self.assertEqual(live_counter.aoi_active_tracks["box"], {1})
+
+        track.active = False
+        live_counter.update([track], frame_idx=1)
+        self.assertEqual(live_counter.aoi_active_tracks["box"], set())
 
     def test_analyze_tracks_counts_valid_tracks_only_by_default(self):
         cfg = CountingConfig(lines=[CountingLine("mid", "Middle", (0, 0), (0, 10))])

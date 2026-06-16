@@ -46,6 +46,14 @@ APP_TITLE = "Thermal Bat Blob Detector - Parameter GUI"
 DETECTOR_MODULE = "thermal_blob_detector"
 
 
+def _absolute_path(value: str) -> str:
+    return str(Path(value).expanduser().resolve())
+
+
+def _default_counting_config_path() -> str:
+    return _absolute_path("outputs/counting_config_drawn.json")
+
+
 NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
     # key, CLI flag, type, default, label, explanation
     ("max_frames", "--max-frames", "int", "0", "Max frames, 0 = full video", "Limits processing for quick tests. Use 300-1000 while tuning; 0 processes the full video."),
@@ -614,7 +622,7 @@ class CountingConfigDrawingWindow(tk.Toplevel):
             "p1": [round(points[0][0], 3), round(points[0][1], 3)],
             "p2": [round(points[-1][0], 3), round(points[-1][1], 3)],
             "pts": [[round(x, 3), round(y, 3)] for x, y in points],
-            "direction_labels": {"positive": "A_to_B", "negative": "B_to_A"},
+            "direction_labels": {"positive": "right_to_left", "negative": "left_to_right"},
             "enabled": True,
         })
         self.status_var.set(f"Line added: {name}")
@@ -638,9 +646,9 @@ class CountingConfigDrawingWindow(tk.Toplevel):
     def _save_json(self) -> None:
         target = self.counting_config_var.get().strip()
         if not target:
-            target = "outputs/counting_config_drawn.json"
-            self.counting_config_var.set(target)
-        path = Path(target)
+            target = _default_counting_config_path()
+        path = Path(target).expanduser().resolve()
+        self.counting_config_var.set(str(path))
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             payload = {"lines": self.lines, "aois": self.aois}
@@ -815,6 +823,7 @@ class ThermalDetectorGUI(tk.Tk):
 
         for key, _flag, _label, default, _explanation in BOOLEAN_PARAMS:
             self.bool_vars[key] = tk.BooleanVar(value=default)
+        self.bool_vars["save_annotated_video"] = tk.BooleanVar(value=True)
 
         for var in list(self.path_vars.values()) + list(self.num_vars.values()):
             var.trace_add("write", lambda *_: self._refresh_command_preview())
@@ -863,13 +872,17 @@ class ThermalDetectorGUI(tk.Tk):
 
         self._path_row(frame, "Detector script/module", "script", self._browse_script, row=0)
         self._path_row(frame, "Input video", "input", self._browse_input, row=1)
-        self._path_row(frame, "Output video", "output", self._browse_output, row=2)
-        self._path_row(frame, "Track points CSV", "csv", self._browse_csv, row=3)
-        self._path_row(frame, "Track summary CSV", "summary_csv", self._browse_summary_csv, row=4)
-        self._path_row(frame, "Crossings CSV", "crossings_csv", self._browse_crossings_csv, row=5)
-        self._path_row(frame, "AOI events CSV", "aoi_events_csv", self._browse_aoi_events_csv, row=6)
-        self._path_row(frame, "Activity CSV", "activity_csv", self._browse_activity_csv, row=7)
-        self._path_row(frame, "Run summary JSON", "run_summary_json", self._browse_run_summary_json, row=8)
+        run_options = ttk.Frame(frame)
+        run_options.grid(row=2, column=0, columnspan=3, sticky="w", padx=4, pady=(4, 2))
+        ttk.Checkbutton(run_options, text="Preview window", variable=self.bool_vars["show"]).pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Checkbutton(run_options, text="Save annotated video", variable=self.bool_vars["save_annotated_video"]).pack(side=tk.LEFT)
+        self._path_row(frame, "Output video", "output", self._browse_output, row=3)
+        self._path_row(frame, "Track points CSV", "csv", self._browse_csv, row=4)
+        self._path_row(frame, "Track summary CSV", "summary_csv", self._browse_summary_csv, row=5)
+        self._path_row(frame, "Crossings CSV", "crossings_csv", self._browse_crossings_csv, row=6)
+        self._path_row(frame, "AOI events CSV", "aoi_events_csv", self._browse_aoi_events_csv, row=7)
+        self._path_row(frame, "Activity CSV", "activity_csv", self._browse_activity_csv, row=8)
+        self._path_row(frame, "Run summary JSON", "run_summary_json", self._browse_run_summary_json, row=9)
 
         frame.columnconfigure(1, weight=1)
 
@@ -1016,7 +1029,7 @@ class ThermalDetectorGUI(tk.Tk):
             messagebox.showerror(APP_TITLE, "Choose an input video first.")
             return
         if not self.path_vars["counting_config"].get().strip():
-            self.path_vars["counting_config"].set("outputs/counting_config_drawn.json")
+            self.path_vars["counting_config"].set(_default_counting_config_path())
         CountingConfigDrawingWindow(
             parent=self,
             input_video=input_video,
@@ -1093,11 +1106,15 @@ class ThermalDetectorGUI(tk.Tk):
         ttk.Label(parent, text="Option").grid(row=0, column=0, sticky="w", padx=4, pady=(0, 6))
         ttk.Label(parent, text="Explanation").grid(row=0, column=1, sticky="w", padx=8, pady=(0, 6))
 
-        for row, (key, _flag, label, _default, explanation) in enumerate(BOOLEAN_PARAMS, start=1):
+        row = 1
+        for key, _flag, label, _default, explanation in BOOLEAN_PARAMS:
+            if key == "show":
+                continue
             cb = ttk.Checkbutton(parent, text=label, variable=self.bool_vars[key])
             cb.grid(row=row, column=0, sticky="nw", padx=4, pady=4)
             explanation_label = ttk.Label(parent, text=explanation, wraplength=520, justify=tk.LEFT)
             explanation_label.grid(row=row, column=1, sticky="nw", padx=8, pady=4)
+            row += 1
 
         parent.columnconfigure(1, weight=1, minsize=480)
 
@@ -1331,8 +1348,11 @@ class ThermalDetectorGUI(tk.Tk):
         run_summary_json = self.path_vars["run_summary_json"].get().strip()
         counting_config_out = self.path_vars["counting_config_out"].get().strip()
 
-        if output:
-            cmd += ["--output", output]
+        if self.bool_vars["save_annotated_video"].get():
+            if output:
+                cmd += ["--output", output]
+        else:
+            cmd += ["--output", ""]
         if csv_path:
             cmd += ["--csv", csv_path]
         if summary_csv:
@@ -1373,6 +1393,8 @@ class ThermalDetectorGUI(tk.Tk):
 
         counting_config = self.path_vars["counting_config"].get().strip()
         if counting_config:
+            counting_config = _absolute_path(counting_config)
+            self.path_vars["counting_config"].set(counting_config)
             cmd += ["--counting-config", counting_config]
         for line in self._parse_multiline_values("count_lines"):
             self._validate_count_line(line)

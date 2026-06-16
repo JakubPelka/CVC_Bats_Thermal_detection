@@ -66,7 +66,7 @@ python src/thermal_blob_detector_mvp_v3_valid_tracks.py --input examples/sample.
 
 ## Track-based counting and statistics
 
-Counting runs after detection and uses tracks, not raw bright blobs. By default only valid flying tracks are counted. Use `--count-all-tracks` only for diagnostics.
+Counting uses tracks, not raw bright blobs. During processing the output preview/video draws counting lines and AOIs, shows a HUD with cumulative event counts, and streams line/AOI event CSV rows to disk immediately after each event. By default only valid flying tracks are counted. Use `--count-all-tracks` only for diagnostics.
 
 Example with one vertical counting line and one rectangular AOI:
 
@@ -84,7 +84,7 @@ PYTHONPATH=src python -m thermal_blob_detector \
   --run-summary-json outputs/sample_run_summary.json
 ```
 
-You can also keep geometry in JSON and pass it with `--counting-config examples/counting_config_example.json`. The main statistics outputs are `crossings.csv`, `aoi_events.csv`, `activity_by_time.csv`, enhanced `track_summary.csv`, and `run_summary.json`.
+You can also keep geometry in JSON and pass it with `--counting-config examples/counting_config_example.json`. Line events include frame/time, track id and direction labels such as `left_to_right` / `right_to_left`. AOI events count each track seen in the zone at least once; exit rows include `start_frame`, `end_frame`, and `dwell_time_s`. The main statistics outputs are `crossings.csv`, `aoi_events.csv`, `activity_by_time.csv`, enhanced `track_summary.csv`, and `run_summary.json`.
 
 ## Run the GUI
 

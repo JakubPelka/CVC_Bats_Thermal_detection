@@ -70,6 +70,9 @@ class AoiEvent:
     time_s: float
     cx: float
     cy: float
+    start_frame: Optional[int] = None
+    end_frame: Optional[int] = None
+    dwell_time_s: Optional[float] = None
 
 
 @dataclass
@@ -252,6 +255,7 @@ def analyze_tracks(
 def detect_line_crossings(tracks: Iterable[Any], fps: float, cfg: CountingConfig) -> List[CrossingEvent]:
     events: List[CrossingEvent] = []
     counters: Dict[Tuple[int, str], int] = {}
+    counted_lines: set[Tuple[int, str]] = set()
 
     for track in tracks:
         detections = _track_detections(track)
@@ -294,7 +298,10 @@ def detect_line_crossings(tracks: Iterable[Any], fps: float, cfg: CountingConfig
                     continue
 
                 key = (int(track.track_id), line.id)
+                if key in counted_lines:
+                    break
                 counters[key] = counters.get(key, 0) + 1
+                counted_lines.add(key)
                 direction = line.positive_label if direction_sign > 0 else line.negative_label
                 cx, cy = point
                 events.append(
@@ -313,6 +320,7 @@ def detect_line_crossings(tracks: Iterable[Any], fps: float, cfg: CountingConfig
                 last_event_frame = frame
                 if side != 0:
                     last_side = side
+                break
 
     events.sort(key=lambda event: (event.frame, event.track_id, event.line_id, event.event_id))
     return events
@@ -333,11 +341,36 @@ def detect_aoi_events(tracks: Iterable[Any], fps: float, cfg: CountingConfig) ->
 
             previous_inside: Optional[bool] = None
             last_event_frame: Optional[int] = None
+            entry_frame: Optional[int] = None
+            visit_completed = False
             for detection in detections:
+                if visit_completed:
+                    break
                 point = _centroid(detection)
                 inside = point_in_aoi(point, aoi)
                 if previous_inside is None:
                     previous_inside = inside
+                    if inside:
+                        frame = int(detection.frame_idx)
+                        entry_frame = frame
+                        key = (int(track.track_id), aoi.id)
+                        counters[key] = counters.get(key, 0) + 1
+                        cx, cy = point
+                        events.append(
+                            AoiEvent(
+                                event_id=f"aoi_{track.track_id}_{aoi.id}_{counters[key]}",
+                                track_id=int(track.track_id),
+                                aoi_id=aoi.id,
+                                aoi_name=aoi.name,
+                                event_type="entry",
+                                frame=frame,
+                                time_s=_time_s(frame, fps),
+                                cx=cx,
+                                cy=cy,
+                                start_frame=frame,
+                            )
+                        )
+                        last_event_frame = frame
                     continue
                 if inside == previous_inside:
                     continue
@@ -350,6 +383,15 @@ def detect_aoi_events(tracks: Iterable[Any], fps: float, cfg: CountingConfig) ->
                 key = (int(track.track_id), aoi.id)
                 counters[key] = counters.get(key, 0) + 1
                 event_type = "entry" if inside else "exit"
+                if event_type == "entry":
+                    entry_frame = frame
+                    start_frame = frame
+                    end_frame = None
+                    dwell_time_s = None
+                else:
+                    start_frame = entry_frame
+                    end_frame = frame
+                    dwell_time_s = None if entry_frame is None else _time_s(frame - entry_frame, fps)
                 cx, cy = point
                 events.append(
                     AoiEvent(
@@ -362,10 +404,16 @@ def detect_aoi_events(tracks: Iterable[Any], fps: float, cfg: CountingConfig) ->
                         time_s=_time_s(frame, fps),
                         cx=cx,
                         cy=cy,
+                        start_frame=start_frame,
+                        end_frame=end_frame,
+                        dwell_time_s=dwell_time_s,
                     )
                 )
                 last_event_frame = frame
                 previous_inside = inside
+                if event_type == "exit":
+                    entry_frame = None
+                    visit_completed = True
 
     events.sort(key=lambda event: (event.frame, event.track_id, event.aoi_id, event.event_id))
     return events
@@ -559,7 +607,8 @@ def write_crossings_csv(path: Path, events: Sequence[CrossingEvent]) -> None:
 
 def write_aoi_events_csv(path: Path, events: Sequence[AoiEvent]) -> None:
     _write_dataclass_csv(path, events, [
-        "event_id", "track_id", "aoi_id", "aoi_name", "event_type", "frame", "time_s", "cx", "cy"
+        "event_id", "track_id", "aoi_id", "aoi_name", "event_type", "frame", "time_s", "cx", "cy",
+        "start_frame", "end_frame", "dwell_time_s",
     ])
 
 

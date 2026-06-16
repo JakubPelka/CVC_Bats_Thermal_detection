@@ -68,7 +68,7 @@ Workflow:
 6. Click points on the video frame. For polylines and AOI polygons, press Enter to finish.
 7. Give the object a name and click **Save JSON**.
 
-The GUI saves the JSON path in **Counting config JSON**, so the run uses `--counting-config` automatically. Drawn lines count crossings by track movement; drawn AOI polygons count entry and exit events.
+The GUI saves the JSON path in **Counting config JSON**, so the run uses `--counting-config` automatically. Drawn lines and AOI polygons are rendered on the output/live preview, with a HUD showing cumulative counts. Drawn lines count crossings by track movement and store direction labels as `left_to_right` / `right_to_left`. AOIs count each track seen in the zone at least once; exit rows include the dwell time before the track left the zone.
 
 Rectangular detection ROI/exclude zones still use:
 

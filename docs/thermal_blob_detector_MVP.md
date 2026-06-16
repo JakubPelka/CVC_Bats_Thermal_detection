@@ -96,7 +96,7 @@ This means it can later be used as an alternative detector backend for ComputerV
 
 ## Counting and statistics outputs
 
-The detector now runs a track-based statistics layer after video processing. It counts valid flying tracks by default, not raw detections. Use `--count-all-tracks` only for diagnostics.
+The detector runs a track-based statistics layer while video frames are processed and again after processing for final summaries. It counts valid flying tracks by default, not raw detections. Use `--count-all-tracks` only for diagnostics. Line/AOI event CSV files are streamed during processing and flushed after each event to reduce result loss after an interruption.
 
 Counting geometry can be passed directly:
 
@@ -115,4 +115,4 @@ PYTHONPATH=src python -m thermal_blob_detector \
   --counting-config examples/counting_config_example.json
 ```
 
-The default statistics files are `crossings.csv`, `aoi_events.csv`, `activity_by_time.csv`, enhanced `thermal_blob_track_summary.csv`, and `run_summary.json`.
+The default statistics files are `crossings.csv`, `aoi_events.csv`, `activity_by_time.csv`, enhanced `thermal_blob_track_summary.csv`, and `run_summary.json`. Line/AOI geometry is drawn into the debug video/live preview, with a HUD for cumulative crossings, AOI seen counts, active AOI occupancy, and recent dwell time.

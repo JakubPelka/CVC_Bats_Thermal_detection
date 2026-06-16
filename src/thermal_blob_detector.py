@@ -24,7 +24,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -32,17 +32,25 @@ import cv2
 import numpy as np
 
 from counting_stats import (
+    AoiEvent,
+    CountingAoi,
     CountingConfig,
+    CrossingEvent,
     analyze_tracks,
     aoi_from_cli,
     line_from_cli,
     load_counting_config,
+    point_in_aoi,
     write_activity_csv,
     write_aoi_events_csv,
     write_counting_config_json,
     write_crossings_csv,
     write_run_summary_json,
     write_track_summary_csv as write_counting_track_summary_csv,
+    _line_points,
+    _polyline_crossing_sign,
+    _polyline_side,
+    _time_s,
 )
 
 
@@ -543,18 +551,15 @@ def draw_debug_overlay(
     detections: List[BlobDetection],
     detector: ThermalBlobDetector,
     frame_idx: int,
+    counting_cfg: Optional[CountingConfig] = None,
+    live_counter: Optional["LiveCounting"] = None,
 ) -> np.ndarray:
     """
-    Clean visualization mode.
+    Debug visualization mode.
 
-    Draws only thin track trails:
-    - no centroid dots
-    - no IDs / labels
-    - no bounding boxes
-    - no HUD text
-
-    By default, only valid flying tracks are drawn.
-    Use --draw-all-tracks to see also short/static/noisy tracks.
+    Draws thin track trails plus optional counting geometry/HUD. By default,
+    only valid flying tracks are drawn. Use --draw-all-tracks to see also
+    short/static/noisy tracks.
     """
     out = frame.copy()
     if out.ndim == 2:
@@ -590,6 +595,321 @@ def draw_debug_overlay(
         for x, y, w, h in cfg.exclude_zones:
             cv2.rectangle(out, (x, y), (x + w, y + h), (120, 120, 120), 1)
 
+    if counting_cfg is not None:
+        draw_counting_geometry(out, counting_cfg, live_counter)
+    if live_counter is not None:
+        draw_counting_hud(out, live_counter, frame_idx)
+
+
+    return out
+
+
+class LiveCounting:
+    """Streaming line/AOI counter used while frames are processed."""
+
+    CROSSING_FIELDS = ["event_id", "track_id", "line_id", "line_name", "direction", "frame", "time_s", "cx", "cy"]
+    AOI_FIELDS = [
+        "event_id", "track_id", "aoi_id", "aoi_name", "event_type", "frame", "time_s", "cx", "cy",
+        "start_frame", "end_frame", "dwell_time_s",
+    ]
+
+    def __init__(
+        self,
+        cfg: CountingConfig,
+        fps: float,
+        crossings_csv_path: Optional[Path],
+        aoi_events_csv_path: Optional[Path],
+        is_countable_track,
+    ) -> None:
+        self.cfg = cfg
+        self.fps = fps
+        self.is_countable_track = is_countable_track
+        self.crossings: List[CrossingEvent] = []
+        self.aoi_events: List[AoiEvent] = []
+        self.line_totals: Dict[str, int] = {}
+        self.direction_totals: Dict[str, int] = {}
+        self.line_direction_totals: Dict[Tuple[str, str], int] = {}
+        self.aoi_seen_tracks: Dict[str, set[int]] = {aoi.id: set() for aoi in cfg.aois}
+        self.aoi_active_tracks: Dict[str, set[int]] = {aoi.id: set() for aoi in cfg.aois}
+        self.aoi_last_dwell_s: Dict[str, float] = {}
+        self._line_state: Dict[Tuple[int, str], Dict[str, Optional[int]]] = {}
+        self._aoi_state: Dict[Tuple[int, str], Dict[str, object]] = {}
+        self._crossing_counts: Dict[Tuple[int, str], int] = {}
+        self._aoi_counts: Dict[Tuple[int, str], int] = {}
+        self._crossings_file = None
+        self._aoi_file = None
+        self._crossings_writer = None
+        self._aoi_writer = None
+
+        if crossings_csv_path and cfg.lines:
+            crossings_csv_path.parent.mkdir(parents=True, exist_ok=True)
+            self._crossings_file = crossings_csv_path.open("w", newline="", encoding="utf-8")
+            self._crossings_writer = csv.DictWriter(self._crossings_file, fieldnames=self.CROSSING_FIELDS)
+            self._crossings_writer.writeheader()
+            self._crossings_file.flush()
+        if aoi_events_csv_path and cfg.aois:
+            aoi_events_csv_path.parent.mkdir(parents=True, exist_ok=True)
+            self._aoi_file = aoi_events_csv_path.open("w", newline="", encoding="utf-8")
+            self._aoi_writer = csv.DictWriter(self._aoi_file, fieldnames=self.AOI_FIELDS)
+            self._aoi_writer.writeheader()
+            self._aoi_file.flush()
+
+    def close(self) -> None:
+        for file_obj in (self._crossings_file, self._aoi_file):
+            if file_obj is not None:
+                file_obj.flush()
+                file_obj.close()
+
+    def update(self, tracks: Sequence[Track], frame_idx: int) -> None:
+        for track in tracks:
+            if track.last_frame_idx != frame_idx:
+                continue
+            if self.cfg.count_valid_tracks_only and not self.is_countable_track(track):
+                continue
+            self._update_lines(track)
+            self._update_aois(track)
+        self._refresh_active_aoi_tracks(tracks)
+
+    def _refresh_active_aoi_tracks(self, tracks: Sequence[Track]) -> None:
+        active_by_aoi: Dict[str, set[int]] = {aoi.id: set() for aoi in self.cfg.aois}
+        for track in tracks:
+            if not track.active:
+                continue
+            if self.cfg.count_valid_tracks_only and not self.is_countable_track(track):
+                continue
+            point = track.last_point
+            if point is None:
+                continue
+            for aoi in self.cfg.aois:
+                if aoi.enabled and point_in_aoi(point, aoi):
+                    active_by_aoi.setdefault(aoi.id, set()).add(int(track.track_id))
+        self.aoi_active_tracks = active_by_aoi
+
+    def _update_lines(self, track: Track) -> None:
+        if len(track.detections) < 2:
+            return
+        previous = track.detections[-2]
+        current = track.detections[-1]
+        previous_point = previous.centroid
+        current_point = current.centroid
+        frame = int(current.frame_idx)
+
+        for line in self.cfg.lines:
+            if not line.enabled:
+                continue
+            points = _line_points(line)
+            if len(points) < 2:
+                continue
+            key = (int(track.track_id), line.id)
+            if self._crossing_counts.get(key, 0) > 0:
+                continue
+            state = self._line_state.setdefault(key, {"last_side": None, "last_event_frame": None})
+            if state["last_side"] is None:
+                previous_side = _polyline_side(points, previous_point, self.cfg.line_crossing_epsilon)
+                state["last_side"] = previous_side if previous_side != 0 else None
+
+            side = _polyline_side(points, current_point, self.cfg.line_crossing_epsilon)
+            direction_sign = _polyline_crossing_sign(previous_point, current_point, points, self.cfg.line_crossing_epsilon)
+            if direction_sign is None:
+                if side == 0:
+                    continue
+                last_side = state["last_side"]
+                if last_side is None:
+                    state["last_side"] = side
+                    continue
+                if side == last_side:
+                    continue
+                direction_sign = 1 if side > last_side else -1
+
+            last_event_frame = state["last_event_frame"]
+            if last_event_frame is not None and frame - int(last_event_frame) < self.cfg.min_frames_between_same_line_crossing:
+                if side != 0:
+                    state["last_side"] = side
+                continue
+
+            self._crossing_counts[key] = self._crossing_counts.get(key, 0) + 1
+            direction = line.positive_label if direction_sign > 0 else line.negative_label
+            cx, cy = current_point
+            event = CrossingEvent(
+                event_id=f"crossing_{track.track_id}_{line.id}_{self._crossing_counts[key]}",
+                track_id=int(track.track_id),
+                line_id=line.id,
+                line_name=line.name,
+                direction=direction,
+                frame=frame,
+                time_s=_time_s(frame, self.fps),
+                cx=float(cx),
+                cy=float(cy),
+            )
+            self.crossings.append(event)
+            self.line_totals[line.id] = self.line_totals.get(line.id, 0) + 1
+            self.direction_totals[direction] = self.direction_totals.get(direction, 0) + 1
+            direction_key = (line.id, direction)
+            self.line_direction_totals[direction_key] = self.line_direction_totals.get(direction_key, 0) + 1
+            if self._crossings_writer is not None:
+                self._crossings_writer.writerow(_csv_row(event, self.CROSSING_FIELDS))
+                self._crossings_file.flush()
+            state["last_event_frame"] = frame
+            if side != 0:
+                state["last_side"] = side
+
+    def _update_aois(self, track: Track) -> None:
+        current = track.detections[-1]
+        point = current.centroid
+        frame = int(current.frame_idx)
+        for aoi in self.cfg.aois:
+            if not aoi.enabled:
+                continue
+            inside = point_in_aoi(point, aoi)
+            key = (int(track.track_id), aoi.id)
+            state = self._aoi_state.setdefault(
+                key,
+                {"previous_inside": None, "last_event_frame": None, "entry_frame": None, "visit_completed": False},
+            )
+            if state.get("visit_completed"):
+                continue
+            previous_inside = state["previous_inside"]
+            if previous_inside is None:
+                state["previous_inside"] = inside
+                if inside:
+                    state["entry_frame"] = frame
+                    self._record_aoi_event(track, aoi, "entry", frame, point, frame, None, None)
+                continue
+            if inside == previous_inside:
+                continue
+
+            last_event_frame = state["last_event_frame"]
+            if last_event_frame is not None and frame - int(last_event_frame) < self.cfg.aoi_boundary_debounce_frames:
+                state["previous_inside"] = inside
+                continue
+
+            if inside:
+                state["entry_frame"] = frame
+                self._record_aoi_event(track, aoi, "entry", frame, point, frame, None, None)
+            else:
+                entry_frame = state["entry_frame"]
+                dwell_time_s = None if entry_frame is None else _time_s(frame - int(entry_frame), self.fps)
+                self._record_aoi_event(track, aoi, "exit", frame, point, entry_frame, frame, dwell_time_s)
+                state["entry_frame"] = None
+                state["visit_completed"] = True
+            state["last_event_frame"] = frame
+            state["previous_inside"] = inside
+
+    def _record_aoi_event(
+        self,
+        track: Track,
+        aoi: CountingAoi,
+        event_type: str,
+        frame: int,
+        point: Point,
+        start_frame: Optional[int],
+        end_frame: Optional[int],
+        dwell_time_s: Optional[float],
+    ) -> None:
+        key = (int(track.track_id), aoi.id)
+        self._aoi_counts[key] = self._aoi_counts.get(key, 0) + 1
+        cx, cy = point
+        event = AoiEvent(
+            event_id=f"aoi_{track.track_id}_{aoi.id}_{self._aoi_counts[key]}",
+            track_id=int(track.track_id),
+            aoi_id=aoi.id,
+            aoi_name=aoi.name,
+            event_type=event_type,
+            frame=frame,
+            time_s=_time_s(frame, self.fps),
+            cx=float(cx),
+            cy=float(cy),
+            start_frame=start_frame,
+            end_frame=end_frame,
+            dwell_time_s=dwell_time_s,
+        )
+        self.aoi_events.append(event)
+        if event_type == "entry":
+            self.aoi_seen_tracks.setdefault(aoi.id, set()).add(int(track.track_id))
+            self.aoi_active_tracks.setdefault(aoi.id, set()).add(int(track.track_id))
+        elif event_type == "exit":
+            self.aoi_active_tracks.setdefault(aoi.id, set()).discard(int(track.track_id))
+            if dwell_time_s is not None:
+                self.aoi_last_dwell_s[aoi.id] = dwell_time_s
+        if self._aoi_writer is not None:
+            self._aoi_writer.writerow(_csv_row(event, self.AOI_FIELDS))
+            self._aoi_file.flush()
+
+
+def draw_counting_geometry(frame: np.ndarray, cfg: CountingConfig, live_counter: Optional[LiveCounting]) -> None:
+    overlay = frame.copy()
+    for aoi in cfg.aois:
+        if not aoi.enabled:
+            continue
+        if aoi.type == "polygon":
+            pts = np.array([[tuple_int(point) for point in aoi.coordinates]], dtype=np.int32)
+            cv2.polylines(frame, pts, isClosed=True, color=(0, 180, 255), thickness=2, lineType=cv2.LINE_AA)
+            cv2.fillPoly(overlay, pts, color=(0, 90, 160))
+            label_point = tuple_int(_polygon_label_point(aoi.coordinates))
+        else:
+            x, y, w, h = (int(round(v)) for v in aoi.coordinates)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 180, 255), 2)
+            cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 90, 160), -1)
+            label_point = (x + 4, y + 16)
+        seen = 0 if live_counter is None else len(live_counter.aoi_seen_tracks.get(aoi.id, set()))
+        active = 0 if live_counter is None else len(live_counter.aoi_active_tracks.get(aoi.id, set()))
+        cv2.putText(frame, f"{aoi.name} seen:{seen} in:{active}", label_point, cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 210, 255), 1, cv2.LINE_AA)
+    if cfg.aois:
+        cv2.addWeighted(overlay, 0.18, frame, 0.82, 0, frame)
+
+    for line in cfg.lines:
+        if not line.enabled:
+            continue
+        points = _line_points(line)
+        if len(points) < 2:
+            continue
+        pts = [tuple_int(point) for point in points]
+        for idx in range(1, len(pts)):
+            cv2.line(frame, pts[idx - 1], pts[idx], (255, 210, 0), 2, cv2.LINE_AA)
+        total = 0 if live_counter is None else live_counter.line_totals.get(line.id, 0)
+        label = f"{line.name}: {total}"
+        cv2.putText(frame, label, (pts[0][0] + 4, pts[0][1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 230, 60), 1, cv2.LINE_AA)
+
+
+def draw_counting_hud(frame: np.ndarray, live_counter: LiveCounting, frame_idx: int) -> None:
+    aoi_seen_total = sum(len(track_ids) for track_ids in live_counter.aoi_seen_tracks.values())
+    rows = [f"frame {frame_idx}  crossings {len(live_counter.crossings)}  AOI seen {aoi_seen_total}"]
+    for line in live_counter.cfg.lines[:4]:
+        total = live_counter.line_totals.get(line.id, 0)
+        positive = live_counter.line_direction_totals.get((line.id, line.positive_label), 0)
+        negative = live_counter.line_direction_totals.get((line.id, line.negative_label), 0)
+        rows.append(f"L {line.name}: {total}  {line.positive_label}:{positive} {line.negative_label}:{negative}")
+    for aoi in live_counter.cfg.aois[:4]:
+        seen = len(live_counter.aoi_seen_tracks.get(aoi.id, set()))
+        active = len(live_counter.aoi_active_tracks.get(aoi.id, set()))
+        dwell = live_counter.aoi_last_dwell_s.get(aoi.id)
+        dwell_text = "" if dwell is None else f" last {dwell:.1f}s"
+        rows.append(f"AOI {aoi.name}: seen {seen} in {active}{dwell_text}")
+    if not rows:
+        return
+    width = min(frame.shape[1] - 12, 520)
+    height = 10 + 20 * len(rows)
+    hud = frame.copy()
+    cv2.rectangle(hud, (6, 6), (6 + width, 6 + height), (0, 0, 0), -1)
+    cv2.addWeighted(hud, 0.72, frame, 0.28, 0, frame)
+    y = 26
+    for row in rows:
+        cv2.putText(frame, row, (14, y), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (245, 245, 245), 1, cv2.LINE_AA)
+        y += 20
+
+
+def _polygon_label_point(points: Sequence[Point]) -> Point:
+    if not points:
+        return 0.0, 0.0
+    return sum(point[0] for point in points) / len(points), sum(point[1] for point in points) / len(points)
+
+
+def _csv_row(event, fieldnames: Sequence[str]) -> Dict[str, object]:
+    row = asdict(event)
+    out: Dict[str, object] = {}
+    for key in fieldnames:
+        value = row.get(key)
+        out[key] = round(value, 4) if isinstance(value, float) else value
     return out
 
 
@@ -818,6 +1138,14 @@ def process_video(args: argparse.Namespace) -> None:
         if not writer.isOpened():
             raise RuntimeError(f"Could not create output video: {output_path}")
 
+    counting_cfg = build_counting_config_from_args(args)
+    live_counter = LiveCounting(
+        cfg=counting_cfg,
+        fps=fps,
+        crossings_csv_path=crossings_csv_path,
+        aoi_events_csv_path=aoi_events_csv_path,
+        is_countable_track=lambda track: is_valid_flying_track(track, cfg),
+    )
     processed_frames = 0
 
     try:
@@ -829,7 +1157,8 @@ def process_video(args: argparse.Namespace) -> None:
 
             detections, _diff_u8, _mask = detector.detect(frame, frame_idx)
             detector.update_tracks(detections)
-            debug_frame = draw_debug_overlay(frame, detections, detector, frame_idx)
+            live_counter.update(list(detector.tracks.values()), frame_idx)
+            debug_frame = draw_debug_overlay(frame, detections, detector, frame_idx, counting_cfg, live_counter)
 
             if writer is not None:
                 writer.write(debug_frame)
@@ -850,6 +1179,7 @@ def process_video(args: argparse.Namespace) -> None:
         cap.release()
         if writer is not None:
             writer.release()
+        live_counter.close()
         if args.show:
             cv2.destroyAllWindows()
 
@@ -857,7 +1187,6 @@ def process_video(args: argparse.Namespace) -> None:
         write_track_points_csv(csv_path, detector.tracks, fps, cfg)
         print(f"CSV written: {csv_path}")
 
-    counting_cfg = build_counting_config_from_args(args)
     counting_results = analyze_tracks(
         tracks=detector.tracks.values(),
         fps=fps,
