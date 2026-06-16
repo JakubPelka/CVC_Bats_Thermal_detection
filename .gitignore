@@ -16,3 +16,5 @@ output/*
 !examples/*.json
 !tests/data/*.csv
 /src/__pycache__
+!presets/
+!presets/*.json

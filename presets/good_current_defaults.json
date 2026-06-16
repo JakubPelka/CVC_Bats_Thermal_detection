@@ -1,0 +1,33 @@
+{
+  "boolean": {
+    "draw_all_tracks": false,
+    "motion_gate": false,
+    "no_prediction": false
+  },
+  "numeric": {
+    "background_frames": "200",
+    "background_percentile": "50.0",
+    "background_stride": "10",
+    "max_area": "1200",
+    "max_detections_per_frame": "40",
+    "max_gap_frames": "4",
+    "max_height": "80",
+    "max_link_distance": "90.0",
+    "max_mean_speed": "120.0",
+    "max_width": "80",
+    "max_frames": "0",
+    "min_area": "2",
+    "min_directionality": "0.15",
+    "min_height": "1",
+    "min_mean_speed": "0.8",
+    "min_track_displacement": "12.0",
+    "min_track_lifetime": "3",
+    "min_track_path_length": "18.0",
+    "min_width": "1",
+    "morph_dilate": "1",
+    "morph_open": "1",
+    "motion_threshold": "5.0",
+    "threshold": "18.0",
+    "trail_length": "0"
+  }
+}

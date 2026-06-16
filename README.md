@@ -2,6 +2,10 @@
 
 Thermal video blob detection and simple track filtering for bat monitoring.
 
+The current workflow is GUI-first: choose an input video, draw ROI/exclude
+zones and counting geometry from video frames, run detection, and review CSV/JSON
+outputs plus an optional annotated video.
+
 ## Repository layout
 
 ```text
@@ -12,7 +16,8 @@ Thermal video blob detection and simple track filtering for bat monitoring.
 |   |-- thermal_blob_detector_mvp_v3_valid_tracks.py  # legacy CLI wrapper
 |   `-- thermal_blob_detector_gui.py                  # legacy GUI wrapper
 |-- docs/                         # detailed usage notes
-|-- examples/                     # sample input video and presets
+|-- examples/                     # sample input video and counting config examples
+|-- presets/                      # loadable GUI parameter presets
 `-- outputs/                      # sample generated outputs
 ```
 
@@ -63,10 +68,29 @@ Direct source wrapper:
 python src/thermal_blob_detector_mvp_v3_valid_tracks.py --input examples/sample.mp4
 ```
 
+For fastest batch processing, omit `--show`. Passing `--output ""` disables
+annotated video writing.
 
 ## Track-based counting and statistics
 
-Counting uses tracks, not raw bright blobs. During processing the output preview/video draws counting lines and AOIs, shows a HUD with cumulative event counts, and streams line/AOI event CSV rows to disk immediately after each event. By default only valid flying tracks are counted. Use `--count-all-tracks` only for diagnostics.
+Counting uses tracks, not raw bright blobs. During processing the annotated
+video/live preview draws counting lines and AOIs and shows a HUD with cumulative
+line crossings, direction counts, AOI seen counts, and active AOI occupancy.
+Line/AOI event CSV rows are streamed to disk during processing and final summary
+files are written after the run.
+
+By default only valid flying tracks are counted. Use `--count-all-tracks` only
+for diagnostics.
+
+Current counting behavior:
+
+- Each track is counted at most once per counting line.
+- Line events store direction labels such as `left_to_right` and `right_to_left`.
+- AOI `seen` counts unique tracks that entered or started inside an AOI.
+- AOI `in` in the HUD counts only currently active tracks whose latest point is
+  inside the AOI.
+- AOI exit rows include `start_frame`, `end_frame`, and `dwell_time_s` when an
+  exit is observed.
 
 Example with one vertical counting line and one rectangular AOI:
 
@@ -84,7 +108,22 @@ PYTHONPATH=src python -m thermal_blob_detector \
   --run-summary-json outputs/sample_run_summary.json
 ```
 
-You can also keep geometry in JSON and pass it with `--counting-config examples/counting_config_example.json`. Line events include frame/time, track id and direction labels such as `left_to_right` / `right_to_left`. AOI events count each track seen in the zone at least once; exit rows include `start_frame`, `end_frame`, and `dwell_time_s`. The main statistics outputs are `crossings.csv`, `aoi_events.csv`, `activity_by_time.csv`, enhanced `track_summary.csv`, and `run_summary.json`.
+The GUI writes counting geometry to JSON and passes it with
+`--counting-config`. You can also run that manually:
+
+```bash
+PYTHONPATH=src python -m thermal_blob_detector \
+  --input examples/sample.mp4 \
+  --counting-config examples/counting_config_example.json
+```
+
+The main statistics outputs are:
+
+- `crossings.csv`
+- `aoi_events.csv`
+- `activity_by_time.csv`
+- enhanced `track_summary.csv`
+- `run_summary.json`
 
 ## Run the GUI
 
@@ -117,6 +156,34 @@ Direct source wrapper:
 ```bash
 python src/thermal_blob_detector_gui.py
 ```
+
+### GUI workflow
+
+1. Choose an input video.
+2. Use **ROI / exclude** to draw the detection ROI and exclude zones.
+3. Use **Counting / Statistics** to draw counting lines and AOI polygons.
+4. Keep **Preview window** on for live visual checks, or turn it off for faster
+   processing.
+5. Keep **Save annotated video** on when you need visual verification after the
+   run. Turn it off for fastest batch processing.
+6. Run the detector and review generated CSV/JSON files.
+
+The GUI no longer exposes manual text boxes for ROI, exclude zones, counting
+lines, or AOIs. These are drawn from video frames. Counting JSON paths are stored
+as absolute paths so the detector can find them regardless of process working
+directory.
+
+### Presets
+
+Loadable GUI presets live in `presets/` and can be opened with **Load preset
+JSON**:
+
+- `good_current_defaults.json`
+- `loose_rescue_more_bats.json`
+- `strict_remove_artefacts.json`
+- `diagnostic_all_tracks.json`
+- `quick_500_frame_test.json`
+- `full_video.json`
 
 ## Documentation
 

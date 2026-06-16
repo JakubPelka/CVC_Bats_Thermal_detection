@@ -1,0 +1,15 @@
+{
+  "boolean": {
+    "draw_all_tracks": false
+  },
+  "numeric": {
+    "max_detections_per_frame": "80",
+    "max_gap_frames": "6",
+    "max_link_distance": "110.0",
+    "min_directionality": "0.05",
+    "min_mean_speed": "0.4",
+    "min_track_displacement": "6.0",
+    "min_track_lifetime": "2",
+    "min_track_path_length": "10.0"
+  }
+}

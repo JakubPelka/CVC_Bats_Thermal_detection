@@ -1,0 +1,14 @@
+{
+  "boolean": {
+    "draw_all_tracks": true
+  },
+  "numeric": {
+    "max_detections_per_frame": "0",
+    "min_directionality": "0.0",
+    "min_mean_speed": "0.0",
+    "min_track_displacement": "0.0",
+    "min_track_lifetime": "1",
+    "min_track_path_length": "0.0",
+    "trail_length": "0"
+  }
+}

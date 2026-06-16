@@ -926,16 +926,6 @@ class ThermalDetectorGUI(tk.Tk):
         notebook.add(tab_flags_scroll, text="Flags")
         self._build_flags_tab(tab_flags_scroll.inner)
 
-        presets = ttk.LabelFrame(parent, text="Quick presets", padding=8)
-        presets.pack(fill=tk.X, pady=(8, 0))
-
-        ttk.Button(presets, text="Good current defaults", command=self._preset_current_defaults).pack(fill=tk.X, pady=2)
-        ttk.Button(presets, text="Loose / rescue more bats", command=self._preset_loose).pack(fill=tk.X, pady=2)
-        ttk.Button(presets, text="Strict / remove artefacts", command=self._preset_strict).pack(fill=tk.X, pady=2)
-        ttk.Button(presets, text="Diagnostic all tracks", command=self._preset_diagnostic).pack(fill=tk.X, pady=2)
-        ttk.Button(presets, text="Quick 500-frame test", command=lambda: self.num_vars["max_frames"].set("500")).pack(fill=tk.X, pady=2)
-        ttk.Button(presets, text="Full video", command=lambda: self.num_vars["max_frames"].set("0")).pack(fill=tk.X, pady=2)
-
     def _params_grid(self, parent: ttk.Frame, keys: List[str]) -> None:
         meta = {key: (flag, typ, default, label, explanation) for key, flag, typ, default, label, explanation in NUMERIC_PARAMS}
 
@@ -959,32 +949,11 @@ class ThermalDetectorGUI(tk.Tk):
         drawing_frame = ttk.LabelFrame(parent, text="Draw rectangles from video frame", padding=8)
         drawing_frame.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(
-            drawing_frame,
-            text="Use this to draw ROI and exclude zones with the mouse instead of typing pixel coordinates.",
-            justify=tk.LEFT,
-            wraplength=620,
-        ).grid(row=0, column=0, columnspan=4, sticky="w", padx=4, pady=(0, 6))
-
-        ttk.Label(drawing_frame, text="Frame index").grid(row=1, column=0, sticky="w", padx=4, pady=3)
-        ttk.Entry(drawing_frame, textvariable=self.path_vars["draw_frame"], width=10).grid(row=1, column=1, sticky="w", padx=4, pady=3)
-        ttk.Button(drawing_frame, text="Draw ROI / exclude zones", command=self._open_roi_exclude_drawing_window).grid(row=1, column=2, sticky="w", padx=8, pady=3)
-
-        ttk.Label(
-            drawing_frame,
-            text="Tip: use frame 0 first. If it is too dark/empty, choose another frame where the background is clear.",
-            justify=tk.LEFT,
-            wraplength=620,
-        ).grid(row=2, column=0, columnspan=4, sticky="w", padx=4, pady=(4, 0))
+        ttk.Label(drawing_frame, text="Frame index").grid(row=0, column=0, sticky="w", padx=4, pady=3)
+        ttk.Entry(drawing_frame, textvariable=self.path_vars["draw_frame"], width=10).grid(row=0, column=1, sticky="w", padx=4, pady=3)
+        ttk.Button(drawing_frame, text="Draw ROI / exclude zones", command=self._open_roi_exclude_drawing_window).grid(row=0, column=2, sticky="w", padx=8, pady=3)
 
         drawing_frame.columnconfigure(3, weight=1)
-
-        ttk.Label(
-            parent,
-            text="ROI and exclude zones are defined only through the drawing window.",
-            justify=tk.LEFT,
-            wraplength=760,
-        ).pack(anchor="w", pady=(0, 4))
 
     def _open_roi_exclude_drawing_window(self) -> None:
         input_video = self.path_vars["input"].get().strip()
@@ -1039,7 +1008,6 @@ class ThermalDetectorGUI(tk.Tk):
         ttk.Entry(draw_row, textvariable=self.path_vars["draw_frame"], width=10).grid(row=0, column=1, sticky="w", padx=4, pady=3)
         ttk.Button(draw_row, text="Draw lines / AOIs", command=self._open_counting_drawing_window).grid(row=0, column=2, sticky="w", padx=8, pady=3)
         ttk.Button(draw_row, text="Save as...", command=self._browse_counting_config_save).grid(row=0, column=3, sticky="w", padx=4, pady=3)
-        ttk.Label(draw_row, text="Click instead of typing pixel coordinates. Lines count crossings; AOI polygons count entry/exit.", justify=tk.LEFT).grid(row=1, column=0, columnspan=4, sticky="w", padx=4, pady=(4, 0))
         draw_row.columnconfigure(4, weight=1)
 
         ttk.Checkbutton(parent, text="Count all tracks for diagnostics", variable=self.bool_vars["count_all_tracks"]).pack(anchor="w", pady=(0, 10))
@@ -1058,13 +1026,6 @@ class ThermalDetectorGUI(tk.Tk):
             ttk.Entry(numeric_frame, textvariable=self.num_vars[key], width=10).grid(row=row, column=1, sticky="w", padx=4, pady=3)
             ttk.Label(numeric_frame, text=f"{typ}. {explanation}", wraplength=720, justify=tk.LEFT).grid(row=row, column=2, sticky="w", padx=8, pady=3)
         numeric_frame.columnconfigure(2, weight=1)
-
-        ttk.Label(
-            parent,
-            text="Counting lines and AOIs are defined only through the drawing window and saved in the JSON above.",
-            justify=tk.LEFT,
-            wraplength=760,
-        ).pack(anchor="w", pady=(0, 10))
 
     def _build_flags_tab(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Option").grid(row=0, column=0, sticky="w", padx=4, pady=(0, 6))
@@ -1205,84 +1166,6 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["aoi_events_csv"].set(str(output_dir / f"{stem}_aoi_events.csv"))
         self.path_vars["activity_csv"].set(str(output_dir / f"{stem}_activity_by_time.csv"))
         self.path_vars["run_summary_json"].set(str(output_dir / f"{stem}_run_summary.json"))
-
-    def _preset_current_defaults(self) -> None:
-        values = {
-            "max_frames": "0",
-            "threshold": "18.0",
-            "motion_threshold": "5.0",
-            "min_area": "2",
-            "max_area": "1200",
-            "min_width": "1",
-            "min_height": "1",
-            "max_width": "80",
-            "max_height": "80",
-            "morph_open": "1",
-            "morph_dilate": "1",
-            "max_link_distance": "90.0",
-            "max_gap_frames": "4",
-            "min_track_lifetime": "3",
-            "min_track_displacement": "12.0",
-            "min_track_path_length": "18.0",
-            "min_mean_speed": "0.8",
-            "max_mean_speed": "120.0",
-            "min_directionality": "0.15",
-            "max_detections_per_frame": "40",
-            "background_frames": "200",
-            "background_stride": "10",
-            "background_percentile": "50.0",
-            "trail_length": "0",
-        }
-        self._set_numeric_values(values)
-        self.bool_vars["motion_gate"].set(False)
-        self.bool_vars["draw_all_tracks"].set(False)
-        self.bool_vars["no_prediction"].set(False)
-
-    def _preset_loose(self) -> None:
-        values = {
-            "min_track_lifetime": "2",
-            "min_track_displacement": "6.0",
-            "min_track_path_length": "10.0",
-            "min_mean_speed": "0.4",
-            "min_directionality": "0.05",
-            "max_detections_per_frame": "80",
-            "max_link_distance": "110.0",
-            "max_gap_frames": "6",
-        }
-        self._set_numeric_values(values)
-        self.bool_vars["draw_all_tracks"].set(False)
-
-    def _preset_strict(self) -> None:
-        values = {
-            "min_track_lifetime": "4",
-            "min_track_displacement": "18.0",
-            "min_track_path_length": "30.0",
-            "min_mean_speed": "1.2",
-            "min_directionality": "0.25",
-            "max_detections_per_frame": "30",
-            "max_link_distance": "80.0",
-            "max_gap_frames": "3",
-        }
-        self._set_numeric_values(values)
-        self.bool_vars["draw_all_tracks"].set(False)
-
-    def _preset_diagnostic(self) -> None:
-        values = {
-            "min_track_lifetime": "1",
-            "min_track_displacement": "0.0",
-            "min_track_path_length": "0.0",
-            "min_mean_speed": "0.0",
-            "min_directionality": "0.0",
-            "max_detections_per_frame": "0",
-            "trail_length": "0",
-        }
-        self._set_numeric_values(values)
-        self.bool_vars["draw_all_tracks"].set(True)
-
-    def _set_numeric_values(self, values: Dict[str, str]) -> None:
-        for key, value in values.items():
-            if key in self.num_vars:
-                self.num_vars[key].set(value)
 
     def _build_command(self) -> List[str]:
         script_or_module = self.path_vars["script"].get().strip()
