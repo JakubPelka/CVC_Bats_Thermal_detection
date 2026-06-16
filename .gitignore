@@ -15,3 +15,4 @@ output/*
 *.json
 !examples/*.json
 !tests/data/*.csv
+/src/__pycache__

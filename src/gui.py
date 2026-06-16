@@ -87,10 +87,10 @@ NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
 
     ("trail_length", "--trail-length", "int", "0", "Trail length, 0 = full track", "Length of drawn trail. 0 draws full history; small values draw only a moving tail."),
 
-    ("activity_bin_seconds", "--activity-bin-seconds", "float", "60.0", "Activity bin seconds", "Time bin size for activity_by_time.csv."),
-    ("line_crossing_epsilon", "--line-crossing-epsilon", "float", "1.0", "Line crossing epsilon", "Tolerance around a counting line to avoid duplicate/noisy side changes."),
-    ("min_frames_between_same_line_crossing", "--min-frames-between-same-line-crossing", "int", "3", "Line crossing debounce", "Minimum frames between repeated crossings of the same line by one track."),
-    ("aoi_boundary_debounce_frames", "--aoi-boundary-debounce-frames", "int", "3", "AOI boundary debounce", "Minimum frames between repeated AOI events for one track near a boundary."),
+    ("activity_bin_seconds", "--activity-bin-seconds", "float", "60.0", "Activity bin seconds", "Length of each time bucket in activity_by_time.csv. Smaller values give more detailed time series; larger values smooth the summary."),
+    ("line_crossing_epsilon", "--line-crossing-epsilon", "float", "1.0", "Line crossing epsilon", "Pixel tolerance around a counting line. Points inside this band are treated as being on the line, which reduces false double counts from jitter near the boundary."),
+    ("min_frames_between_same_line_crossing", "--min-frames-between-same-line-crossing", "int", "3", "Line crossing debounce", "Minimum frame gap before the same track can trigger the same line again. Higher values suppress rapid back-and-forth jitter near a line."),
+    ("aoi_boundary_debounce_frames", "--aoi-boundary-debounce-frames", "int", "3", "AOI boundary debounce", "Minimum frame gap before entry/exit state changes are accepted near an AOI edge. Higher values reduce flicker when a centroid sits on the border."),
 ]
 
 
@@ -811,7 +811,6 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["activity_csv"] = tk.StringVar(value="outputs/activity_by_time.csv")
         self.path_vars["run_summary_json"] = tk.StringVar(value="outputs/run_summary.json")
         self.path_vars["counting_config"] = tk.StringVar(value="")
-        self.path_vars["counting_config_out"] = tk.StringVar(value="")
         self.path_vars["count_lines"] = tk.StringVar(value="")
         self.path_vars["count_aois"] = tk.StringVar(value="")
         self.path_vars["roi"] = tk.StringVar(value="")
@@ -857,11 +856,12 @@ class ThermalDetectorGUI(tk.Tk):
         right = ttk.Frame(middle)
 
         screen_w = self.winfo_screenwidth()
-        parameter_width = max(720, min(980, int(screen_w * 0.46)))
-        log_width = max(420, min(760, int(screen_w * 0.28)))
+        total_width = max(1040, min(1600, screen_w - 80))
+        log_width = min(int(total_width * 0.30), max(300, int(screen_w * 0.22)))
+        parameter_width = total_width - log_width
 
-        middle.add(left, minsize=620, width=parameter_width)
-        middle.add(right, minsize=360, width=log_width)
+        middle.add(left, minsize=760, width=parameter_width, stretch="always")
+        middle.add(right, minsize=280, width=log_width, stretch="never")
 
         self._build_parameter_section(left)
         self._build_command_and_log_section(right)
@@ -948,12 +948,12 @@ class ThermalDetectorGUI(tk.Tk):
             ttk.Label(parent, text=label).grid(row=row, column=0, sticky="nw", padx=4, pady=4)
             entry = ttk.Entry(parent, textvariable=self.num_vars[key], width=10)
             entry.grid(row=row, column=1, sticky="nw", padx=4, pady=4)
-            explanation_label = ttk.Label(parent, text=f"{typ}. {explanation}", wraplength=520, justify=tk.LEFT)
+            explanation_label = ttk.Label(parent, text=f"{typ}. {explanation}", wraplength=760, justify=tk.LEFT)
             explanation_label.grid(row=row, column=2, sticky="nw", padx=8, pady=4)
 
         parent.columnconfigure(0, minsize=150)
         parent.columnconfigure(1, minsize=90)
-        parent.columnconfigure(2, weight=1, minsize=480)
+        parent.columnconfigure(2, weight=1, minsize=650)
 
     def _build_mask_tab(self, parent: ttk.Frame) -> None:
         drawing_frame = ttk.LabelFrame(parent, text="Draw rectangles from video frame", padding=8)
@@ -979,34 +979,12 @@ class ThermalDetectorGUI(tk.Tk):
 
         drawing_frame.columnconfigure(3, weight=1)
 
-        ttk.Label(parent, text="ROI, optional, format: x,y,w,h").pack(anchor="w")
-        ttk.Entry(parent, textvariable=self.path_vars["roi"]).pack(fill=tk.X, pady=(2, 10))
-
-        text = (
-            "Exclude zones, optional.\n"
-            "Use one rectangle per line or separate with semicolon.\n"
-            "Format: x,y,w,h\n\n"
-            "You can still type/edit values manually here."
-        )
-        ttk.Label(parent, text=text, justify=tk.LEFT).pack(anchor="w")
-        exclude_entry = tk.Text(parent, height=8, width=42)
-        exclude_entry.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-
-        def sync_from_var(*_args) -> None:
-            current = exclude_entry.get("1.0", tk.END).strip()
-            wanted = self.path_vars["exclude_zones"].get()
-            if current != wanted:
-                exclude_entry.delete("1.0", tk.END)
-                exclude_entry.insert("1.0", wanted)
-
-        def sync_to_var(*_args) -> None:
-            value = exclude_entry.get("1.0", tk.END).strip()
-            if self.path_vars["exclude_zones"].get() != value:
-                self.path_vars["exclude_zones"].set(value)
-
-        exclude_entry.bind("<KeyRelease>", sync_to_var)
-        exclude_entry.bind("<FocusOut>", sync_to_var)
-        self.path_vars["exclude_zones"].trace_add("write", sync_from_var)
+        ttk.Label(
+            parent,
+            text="ROI and exclude zones are defined only through the drawing window.",
+            justify=tk.LEFT,
+            wraplength=760,
+        ).pack(anchor="w", pady=(0, 4))
 
     def _open_roi_exclude_drawing_window(self) -> None:
         input_video = self.path_vars["input"].get().strip()
@@ -1068,39 +1046,25 @@ class ThermalDetectorGUI(tk.Tk):
 
         numeric_frame = ttk.LabelFrame(parent, text="Counting thresholds", padding=6)
         numeric_frame.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(numeric_frame, text="Parameter").grid(row=0, column=0, sticky="w", padx=4, pady=(0, 6))
+        ttk.Label(numeric_frame, text="Value").grid(row=0, column=1, sticky="w", padx=4, pady=(0, 6))
+        ttk.Label(numeric_frame, text="Explanation").grid(row=0, column=2, sticky="w", padx=8, pady=(0, 6))
+        meta = {key: (typ, explanation) for key, _flag, typ, _default, _label, explanation in NUMERIC_PARAMS}
         for row, key in enumerate(["activity_bin_seconds", "line_crossing_epsilon", "min_frames_between_same_line_crossing", "aoi_boundary_debounce_frames"]):
+            row += 1
             label = next(item[4] for item in NUMERIC_PARAMS if item[0] == key)
+            typ, explanation = meta[key]
             ttk.Label(numeric_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=3)
             ttk.Entry(numeric_frame, textvariable=self.num_vars[key], width=10).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            ttk.Label(numeric_frame, text=f"{typ}. {explanation}", wraplength=720, justify=tk.LEFT).grid(row=row, column=2, sticky="w", padx=8, pady=3)
         numeric_frame.columnconfigure(2, weight=1)
 
-        ttk.Label(parent, text="Counting lines, one per line: id,name,x1,y1,x2,y2[,positive_label,negative_label]").pack(anchor="w")
-        self.count_lines_text = tk.Text(parent, height=5, width=42)
-        self.count_lines_text.pack(fill=tk.BOTH, expand=True, pady=(2, 10))
-
-        ttk.Label(parent, text="Rectangular AOIs, one per line: id,name,x,y,w,h").pack(anchor="w")
-        self.count_aois_text = tk.Text(parent, height=5, width=42)
-        self.count_aois_text.pack(fill=tk.BOTH, expand=True, pady=(2, 10))
-
-        ttk.Label(parent, text="Effective counting config JSON output, optional").pack(anchor="w")
-        ttk.Entry(parent, textvariable=self.path_vars["counting_config_out"]).pack(fill=tk.X, pady=(2, 0))
-
-        def sync_text_to_var(widget: tk.Text, key: str) -> None:
-            value = widget.get("1.0", tk.END).strip()
-            if self.path_vars[key].get() != value:
-                self.path_vars[key].set(value)
-
-        def sync_var_to_text(widget: tk.Text, key: str) -> None:
-            current = widget.get("1.0", tk.END).strip()
-            wanted = self.path_vars[key].get()
-            if current != wanted:
-                widget.delete("1.0", tk.END)
-                widget.insert("1.0", wanted)
-
-        for widget, key in ((self.count_lines_text, "count_lines"), (self.count_aois_text, "count_aois")):
-            widget.bind("<KeyRelease>", lambda _event, w=widget, k=key: sync_text_to_var(w, k))
-            widget.bind("<FocusOut>", lambda _event, w=widget, k=key: sync_text_to_var(w, k))
-            self.path_vars[key].trace_add("write", lambda *_args, w=widget, k=key: sync_var_to_text(w, k))
+        ttk.Label(
+            parent,
+            text="Counting lines and AOIs are defined only through the drawing window and saved in the JSON above.",
+            justify=tk.LEFT,
+            wraplength=760,
+        ).pack(anchor="w", pady=(0, 10))
 
     def _build_flags_tab(self, parent: ttk.Frame) -> None:
         ttk.Label(parent, text="Option").grid(row=0, column=0, sticky="w", padx=4, pady=(0, 6))
@@ -1346,7 +1310,6 @@ class ThermalDetectorGUI(tk.Tk):
         aoi_events_csv = self.path_vars["aoi_events_csv"].get().strip()
         activity_csv = self.path_vars["activity_csv"].get().strip()
         run_summary_json = self.path_vars["run_summary_json"].get().strip()
-        counting_config_out = self.path_vars["counting_config_out"].get().strip()
 
         if self.bool_vars["save_annotated_video"].get():
             if output:
@@ -1365,9 +1328,6 @@ class ThermalDetectorGUI(tk.Tk):
             cmd += ["--activity-csv", activity_csv]
         if run_summary_json:
             cmd += ["--run-summary-json", run_summary_json]
-        if counting_config_out:
-            cmd += ["--counting-config-out", counting_config_out]
-
         self._validate_numeric_params()
 
         meta = {key: (flag, typ) for key, flag, typ, _default, _label, _explanation in NUMERIC_PARAMS}
@@ -1396,12 +1356,6 @@ class ThermalDetectorGUI(tk.Tk):
             counting_config = _absolute_path(counting_config)
             self.path_vars["counting_config"].set(counting_config)
             cmd += ["--counting-config", counting_config]
-        for line in self._parse_multiline_values("count_lines"):
-            self._validate_count_line(line)
-            cmd += ["--count-line", line]
-        for aoi in self._parse_multiline_values("count_aois"):
-            self._validate_count_aoi(aoi)
-            cmd += ["--count-aoi", aoi]
         if self.bool_vars.get("count_all_tracks") and self.bool_vars["count_all_tracks"].get():
             cmd.append("--count-all-tracks")
 
