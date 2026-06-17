@@ -7,6 +7,7 @@ samples/*
 outputs/*
 !outputs/README.md
 output/*
+examples/*
 !output/README.md
 *.avi
 *.mov
