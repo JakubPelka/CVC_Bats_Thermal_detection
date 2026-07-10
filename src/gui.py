@@ -834,7 +834,12 @@ class ThermalDetectorGUI(tk.Tk):
 
     def _create_variables(self) -> None:
         self.path_vars["script"] = tk.StringVar(value=DETECTOR_MODULE)
+        self.path_vars["input_mode"] = tk.StringVar(value="single")
         self.path_vars["input"] = tk.StringVar(value="")
+        self.path_vars["inputs"] = tk.StringVar(value="")
+        self.path_vars["input_dir"] = tk.StringVar(value="")
+        self.path_vars["video_extensions"] = tk.StringVar(value=".mp4,.avi,.mov,.mkv")
+        self.path_vars["batch_output_dir"] = tk.StringVar(value="outputs")
         self.path_vars["output"] = tk.StringVar(value="outputs/thermal_blob_valid_tracks.mp4")
         self.path_vars["csv"] = tk.StringVar(value="outputs/thermal_blob_track_points.csv")
         self.path_vars["summary_csv"] = tk.StringVar(value="outputs/thermal_blob_track_summary.csv")
@@ -848,6 +853,12 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["roi"] = tk.StringVar(value="")
         self.path_vars["exclude_zones"] = tk.StringVar(value="")
         self.path_vars["draw_frame"] = tk.StringVar(value="0")
+        self.path_vars["event_clips_dir"] = tk.StringVar(value="")
+        self.path_vars["event_clip_pre_frames"] = tk.StringVar(value="100")
+        self.path_vars["event_clip_post_frames"] = tk.StringVar(value="100")
+        self.path_vars["event_clip_merge_gap_frames"] = tk.StringVar(value="100")
+        self.path_vars["event_clip_trigger"] = tk.StringVar(value="valid_tracks")
+        self.path_vars["event_clip_fourcc"] = tk.StringVar(value="mp4v")
 
         for key, _flag, _typ, default, _label, _explanation in NUMERIC_PARAMS:
             self.num_vars[key] = tk.StringVar(value=default)
@@ -855,6 +866,10 @@ class ThermalDetectorGUI(tk.Tk):
         for key, _flag, _label, default, _explanation in BOOLEAN_PARAMS:
             self.bool_vars[key] = tk.BooleanVar(value=default)
         self.bool_vars["save_annotated_video"] = tk.BooleanVar(value=True)
+        self.bool_vars["recursive"] = tk.BooleanVar(value=False)
+        self.bool_vars["continue_on_error"] = tk.BooleanVar(value=False)
+        self.bool_vars["skip_existing"] = tk.BooleanVar(value=False)
+        self.bool_vars["event_clips"] = tk.BooleanVar(value=False)
 
         for var in list(self.path_vars.values()) + list(self.num_vars.values()):
             var.trace_add("write", lambda *_: self._refresh_command_preview())
@@ -903,18 +918,36 @@ class ThermalDetectorGUI(tk.Tk):
         frame.pack(fill=tk.X)
 
         self._path_row(frame, "Detector script/module", "script", self._browse_script, row=0)
-        self._path_row(frame, "Input video", "input", self._browse_input, row=1)
+        input_modes = ttk.Frame(frame)
+        input_modes.grid(row=1, column=0, columnspan=3, sticky="w", padx=4, pady=3)
+        ttk.Label(input_modes, text="Input mode:").pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Radiobutton(input_modes, text="One file", variable=self.path_vars["input_mode"], value="single").pack(side=tk.LEFT)
+        ttk.Radiobutton(input_modes, text="Multiple files", variable=self.path_vars["input_mode"], value="multiple").pack(side=tk.LEFT, padx=8)
+        ttk.Radiobutton(input_modes, text="Folder", variable=self.path_vars["input_mode"], value="folder").pack(side=tk.LEFT)
+        self._path_row(frame, "Input video", "input", self._browse_input, row=2)
+        self._path_row(frame, "Input videos", "inputs", self._browse_inputs, row=3)
+        self._path_row(frame, "Input folder", "input_dir", self._browse_input_dir, row=4)
+        batch_row = ttk.Frame(frame)
+        batch_row.grid(row=5, column=0, columnspan=3, sticky="ew", padx=4, pady=3)
+        ttk.Label(batch_row, text="Batch output folder").pack(side=tk.LEFT)
+        ttk.Entry(batch_row, textvariable=self.path_vars["batch_output_dir"], width=35).pack(side=tk.LEFT, padx=8)
+        ttk.Button(batch_row, text="Browse", command=self._browse_batch_output_dir).pack(side=tk.LEFT)
+        ttk.Label(batch_row, text="Extensions").pack(side=tk.LEFT, padx=(18, 4))
+        ttk.Entry(batch_row, textvariable=self.path_vars["video_extensions"], width=22).pack(side=tk.LEFT)
         run_options = ttk.Frame(frame)
-        run_options.grid(row=2, column=0, columnspan=3, sticky="w", padx=4, pady=(4, 2))
+        run_options.grid(row=6, column=0, columnspan=3, sticky="w", padx=4, pady=(4, 2))
         ttk.Checkbutton(run_options, text="Preview window", variable=self.bool_vars["show"]).pack(side=tk.LEFT, padx=(0, 16))
-        ttk.Checkbutton(run_options, text="Save annotated video", variable=self.bool_vars["save_annotated_video"]).pack(side=tk.LEFT)
-        self._path_row(frame, "Output video", "output", self._browse_output, row=3)
-        self._path_row(frame, "Track points CSV", "csv", self._browse_csv, row=4)
-        self._path_row(frame, "Track summary CSV", "summary_csv", self._browse_summary_csv, row=5)
-        self._path_row(frame, "Crossings CSV", "crossings_csv", self._browse_crossings_csv, row=6)
-        self._path_row(frame, "AOI events CSV", "aoi_events_csv", self._browse_aoi_events_csv, row=7)
-        self._path_row(frame, "Activity CSV", "activity_csv", self._browse_activity_csv, row=8)
-        self._path_row(frame, "Run summary JSON", "run_summary_json", self._browse_run_summary_json, row=9)
+        ttk.Checkbutton(run_options, text="Save annotated video", variable=self.bool_vars["save_annotated_video"]).pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Checkbutton(run_options, text="Recursive folder scan", variable=self.bool_vars["recursive"]).pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Checkbutton(run_options, text="Continue on error", variable=self.bool_vars["continue_on_error"]).pack(side=tk.LEFT, padx=(0, 16))
+        ttk.Checkbutton(run_options, text="Skip existing", variable=self.bool_vars["skip_existing"]).pack(side=tk.LEFT)
+        self._path_row(frame, "Output video (single file)", "output", self._browse_output, row=7)
+        self._path_row(frame, "Track points CSV", "csv", self._browse_csv, row=8)
+        self._path_row(frame, "Track summary CSV", "summary_csv", self._browse_summary_csv, row=9)
+        self._path_row(frame, "Crossings CSV", "crossings_csv", self._browse_crossings_csv, row=10)
+        self._path_row(frame, "AOI events CSV", "aoi_events_csv", self._browse_aoi_events_csv, row=11)
+        self._path_row(frame, "Activity CSV", "activity_csv", self._browse_activity_csv, row=12)
+        self._path_row(frame, "Run summary JSON", "run_summary_json", self._browse_run_summary_json, row=13)
 
         frame.columnconfigure(1, weight=1)
 
@@ -957,6 +990,10 @@ class ThermalDetectorGUI(tk.Tk):
         tab_counting = ttk.Frame(notebook, padding=8)
         notebook.add(tab_counting, text="Counting / Statistics")
         self._build_counting_tab(tab_counting)
+
+        tab_events = ttk.Frame(notebook, padding=8)
+        notebook.add(tab_events, text="Event clips")
+        self._build_event_clips_tab(tab_events)
 
         tab_flags_scroll = ScrollableFrame(notebook, padding=0)
         notebook.add(tab_flags_scroll, text="Flags")
@@ -1079,6 +1116,34 @@ class ThermalDetectorGUI(tk.Tk):
 
         parent.columnconfigure(1, weight=1, minsize=480)
 
+    def _build_event_clips_tab(self, parent: ttk.Frame) -> None:
+        ttk.Checkbutton(parent, text="Export event clips after the main analysis", variable=self.bool_vars["event_clips"]).grid(
+            row=0, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 10)
+        )
+        ttk.Label(parent, text="Output folder override (empty = automatic per-video folder)").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(parent, textvariable=self.path_vars["event_clips_dir"]).grid(row=1, column=1, sticky="ew", padx=4, pady=4)
+        ttk.Button(parent, text="Browse", command=self._browse_event_clips_dir).grid(row=1, column=2, padx=4, pady=4)
+        fields = [
+            ("event_clip_pre_frames", "Frames before event"),
+            ("event_clip_post_frames", "Frames after event"),
+            ("event_clip_merge_gap_frames", "Merge gap in frames"),
+            ("event_clip_fourcc", "Video codec (FourCC)"),
+        ]
+        for row, (key, label) in enumerate(fields, start=2):
+            ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=4)
+            ttk.Entry(parent, textvariable=self.path_vars[key], width=18).grid(row=row, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(parent, text="Clip trigger").grid(row=6, column=0, sticky="w", padx=4, pady=4)
+        ttk.Combobox(
+            parent, textvariable=self.path_vars["event_clip_trigger"], state="readonly", width=20,
+            values=("valid_tracks", "all_tracks", "crossings", "aois", "all_events"),
+        ).grid(row=6, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(
+            parent,
+            text="Clips are generated after analysis. Overlapping and nearby activity windows are merged.",
+            wraplength=760, justify=tk.LEFT,
+        ).grid(row=7, column=0, columnspan=3, sticky="w", padx=4, pady=(12, 4))
+        parent.columnconfigure(1, weight=1)
+
     def _build_command_and_log_section(self, parent: ttk.Frame) -> None:
         command_frame = ttk.LabelFrame(parent, text="Generated command", padding=6)
         command_frame.pack(fill=tk.X)
@@ -1134,7 +1199,38 @@ class ThermalDetectorGUI(tk.Tk):
             return
 
         self.path_vars["input"].set(path)
+        self.path_vars["input_mode"].set("single")
         self._suggest_outputs_from_input(Path(path))
+
+    def _browse_inputs(self) -> None:
+        paths = filedialog.askopenfilenames(
+            title="Select input videos",
+            filetypes=[("Video files", "*.mp4 *.avi *.mov *.mkv *.m4v"), ("All files", "*.*")],
+        )
+        if paths:
+            self.path_vars["inputs"].set(";".join(paths))
+            self.path_vars["input"].set(paths[0])  # reference frame for ROI/counting drawing tools
+            self.path_vars["input_mode"].set("multiple")
+
+    def _browse_input_dir(self) -> None:
+        path = filedialog.askdirectory(title="Select folder with input videos")
+        if path:
+            self.path_vars["input_dir"].set(path)
+            self.path_vars["input_mode"].set("folder")
+            extensions = {item.strip().lower() for item in self.path_vars["video_extensions"].get().split(",") if item.strip()}
+            first_video = next((item for item in sorted(Path(path).iterdir()) if item.is_file() and item.suffix.lower() in extensions), None)
+            if first_video is not None:
+                self.path_vars["input"].set(str(first_video))  # reference frame for drawing tools
+
+    def _browse_batch_output_dir(self) -> None:
+        path = filedialog.askdirectory(title="Select batch output folder")
+        if path:
+            self.path_vars["batch_output_dir"].set(path)
+
+    def _browse_event_clips_dir(self) -> None:
+        path = filedialog.askdirectory(title="Select custom event clips folder")
+        if path:
+            self.path_vars["event_clips_dir"].set(path)
 
     def _browse_output(self) -> None:
         path = filedialog.asksaveasfilename(
@@ -1205,22 +1301,51 @@ class ThermalDetectorGUI(tk.Tk):
 
     def _build_command(self) -> List[str]:
         script_or_module = self.path_vars["script"].get().strip()
-        input_video = self.path_vars["input"].get().strip()
 
         if not script_or_module:
             raise ValueError("Detector script/module is required.")
-        if not input_video:
-            raise ValueError("Input video is required.")
-        if not Path(input_video).exists():
-            raise ValueError(f"Input video not found:\n{input_video}")
 
         script_path = Path(script_or_module)
         if script_path.exists():
-            cmd: List[str] = [sys.executable, "-u", str(script_path), "--input", input_video]
+            cmd: List[str] = [sys.executable, "-u", str(script_path)]
         elif script_or_module == DETECTOR_MODULE or "." in script_or_module:
-            cmd = [sys.executable, "-u", "-m", script_or_module, "--input", input_video]
+            cmd = [sys.executable, "-u", "-m", script_or_module]
         else:
             raise ValueError(f"Detector script/module not found:\n{script_or_module}")
+
+        input_mode = self.path_vars["input_mode"].get()
+        if input_mode == "single":
+            input_video = self.path_vars["input"].get().strip()
+            if not input_video or not Path(input_video).is_file():
+                raise ValueError(f"Input video not found:\n{input_video}")
+            cmd += ["--input", input_video]
+        elif input_mode == "multiple":
+            input_videos = [value.strip() for value in self.path_vars["inputs"].get().replace("\n", ";").split(";") if value.strip()]
+            if not input_videos:
+                raise ValueError("Select at least one input video.")
+            missing = [value for value in input_videos if not Path(value).is_file()]
+            if missing:
+                raise ValueError(f"Input video not found:\n{missing[0]}")
+            cmd += ["--inputs", *input_videos]
+        elif input_mode == "folder":
+            input_dir = self.path_vars["input_dir"].get().strip()
+            if not input_dir or not Path(input_dir).is_dir():
+                raise ValueError(f"Input folder not found:\n{input_dir}")
+            cmd += ["--input-dir", input_dir]
+        else:
+            raise ValueError("Choose one input mode: one file, multiple files, or folder.")
+
+        batch_output_dir = self.path_vars["batch_output_dir"].get().strip() or "outputs"
+        cmd += ["--batch-output-dir", batch_output_dir]
+        extensions = self.path_vars["video_extensions"].get().strip()
+        if extensions:
+            cmd += ["--video-extensions", extensions]
+        if self.bool_vars["recursive"].get():
+            cmd.append("--recursive")
+        if self.bool_vars["continue_on_error"].get():
+            cmd.append("--continue-on-error")
+        if self.bool_vars["skip_existing"].get():
+            cmd.append("--skip-existing")
 
         output = self.path_vars["output"].get().strip()
         csv_path = self.path_vars["csv"].get().strip()
@@ -1247,6 +1372,29 @@ class ThermalDetectorGUI(tk.Tk):
             cmd += ["--activity-csv", activity_csv]
         if run_summary_json:
             cmd += ["--run-summary-json", run_summary_json]
+        if self.bool_vars["event_clips"].get():
+            cmd.append("--event-clips")
+            clips_dir = self.path_vars["event_clips_dir"].get().strip()
+            if clips_dir:
+                cmd += ["--event-clips-dir", clips_dir]
+            clip_values = [
+                ("event_clip_pre_frames", "--event-clip-pre-frames"),
+                ("event_clip_post_frames", "--event-clip-post-frames"),
+                ("event_clip_merge_gap_frames", "--event-clip-merge-gap-frames"),
+            ]
+            for key, flag in clip_values:
+                value = self.path_vars[key].get().strip()
+                try:
+                    if int(value) < 0:
+                        raise ValueError
+                except ValueError as exc:
+                    raise ValueError(f"{key} must be a non-negative integer.") from exc
+                cmd += [flag, value]
+            trigger = self.path_vars["event_clip_trigger"].get().strip()
+            fourcc = self.path_vars["event_clip_fourcc"].get().strip()
+            if len(fourcc) != 4:
+                raise ValueError("Event clip FourCC must contain exactly four characters.")
+            cmd += ["--event-clip-trigger", trigger, "--event-clip-fourcc", fourcc]
         self._validate_numeric_params()
 
         meta = {key: (flag, typ) for key, flag, typ, _default, _label, _explanation in NUMERIC_PARAMS}
@@ -1497,12 +1645,16 @@ class ThermalDetectorGUI(tk.Tk):
             messagebox.showerror(APP_TITLE, f"Could not load preset:\n{exc}")
 
     def _open_output_folder(self) -> None:
-        candidates = [
-            self.path_vars["output"].get().strip(),
-            self.path_vars["csv"].get().strip(),
-            self.path_vars["summary_csv"].get().strip(),
-            self.path_vars["input"].get().strip(),
-        ]
+        if self.path_vars["input_mode"].get() in {"multiple", "folder"}:
+            candidates = [self.path_vars["batch_output_dir"].get().strip()]
+        else:
+            candidates = [
+                self.path_vars["event_clips_dir"].get().strip(),
+                self.path_vars["output"].get().strip(),
+                self.path_vars["csv"].get().strip(),
+                self.path_vars["summary_csv"].get().strip(),
+                self.path_vars["input"].get().strip(),
+            ]
 
         folder: Optional[Path] = None
         for candidate in candidates:
