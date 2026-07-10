@@ -71,6 +71,25 @@ python src/thermal_blob_detector_mvp_v3_valid_tracks.py --input examples/sample.
 For fastest batch processing, omit `--show`. Passing `--output ""` disables
 annotated video writing.
 
+### Periodic background recalibration
+
+Long thermal recordings can drift in apparent temperature or contrast. Enable
+periodic recalibration when detections degrade over time; it is disabled by
+default, so existing runs keep the original static background behaviour.
+
+```bash
+thermal-blob-detector --input recording.mp4 \
+  --background-recalibrate-interval 2000 \
+  --background-recalibrate-frames 200 \
+  --background-recalibrate-stride 10 \
+  --background-recalibrate-blend 0.7
+```
+
+Use blend `1.0` for sudden temperature/contrast changes or a gentler value such
+as `0.2` for slow thermal drift. The terminal and preview HUD show frame count,
+percentage, elapsed time, processing FPS and ETA when the video frame count is
+available.
+
 ## Track-based counting and statistics
 
 Counting uses tracks, not raw bright blobs. During processing the annotated

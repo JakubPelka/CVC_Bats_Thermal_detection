@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cvc-bats-thermal-detection"
-version = "0.1.0"
+version = "0.1.1a0"
 description = "Thermal video blob detection and track filtering for bat monitoring."
 readme = "README.md"
 requires-python = ">=3.9"

@@ -6,6 +6,12 @@ This project follows a pragmatic pre-release workflow. The current goal is to st
 
 ## [Unreleased]
 
+### Added for v0.1.1-alpha
+
+- Optional periodic background recalibration with configurable sampling and blending.
+- Analysis progress in the terminal and preview HUD with total frames, percentage,
+  elapsed time, processing FPS and ETA.
+
 ### Planned
 
 - Validate detection, tracking and counting on additional thermal bat recordings.

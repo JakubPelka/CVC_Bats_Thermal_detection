@@ -84,6 +84,10 @@ NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
     ("background_frames", "--background-frames", "int", "200", "Background frames", "Number of sampled frames used to build the static background. More = stabler but slower start."),
     ("background_stride", "--background-stride", "int", "10", "Background stride", "Frame step between samples for background building. Higher samples a longer time range."),
     ("background_percentile", "--background-percentile", "float", "50.0", "Background percentile", "50 = median background. Lower/higher can help with unusual thermal backgrounds."),
+    ("background_recalibrate_interval", "--background-recalibrate-interval", "int", "0", "Recalibrate interval, 0 = off", "Rebuild the thermal background every N processed frames. Leave at 0 to preserve the static-background behaviour."),
+    ("background_recalibrate_frames", "--background-recalibrate-frames", "int", "200", "Recalibration frames", "Number of future sampled frames used for each periodic background update."),
+    ("background_recalibrate_stride", "--background-recalibrate-stride", "int", "10", "Recalibration stride", "Frame step between samples in each periodic background window."),
+    ("background_recalibrate_blend", "--background-recalibrate-blend", "float", "1.0", "Recalibration blend", "Update strength: 1.0 replaces the background; smaller values such as 0.2 adapt gently to slow drift."),
 
     ("trail_length", "--trail-length", "int", "0", "Trail length, 0 = full track", "Length of drawn trail. 0 draws full history; small values draw only a moving tail."),
 
@@ -906,7 +910,11 @@ class ThermalDetectorGUI(tk.Tk):
                 "min_track_displacement", "min_track_path_length", "min_mean_speed", "max_mean_speed",
                 "min_directionality", "max_detections_per_frame",
             ]),
-            ("Background", ["background_frames", "background_stride", "background_percentile"]),
+            ("Background", [
+                "background_frames", "background_stride", "background_percentile",
+                "background_recalibrate_interval", "background_recalibrate_frames",
+                "background_recalibrate_stride", "background_recalibrate_blend",
+            ]),
         ]
 
         for title, keys in tab_defs:

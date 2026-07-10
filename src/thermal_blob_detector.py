@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -201,6 +202,10 @@ class ThermalBlobConfig:
     background_frames: int = 200
     background_stride: int = 10
     background_percentile: float = 50.0  # 50 = median
+    background_recalibrate_interval: int = 0
+    background_recalibrate_frames: int = 200
+    background_recalibrate_stride: int = 10
+    background_recalibrate_blend: float = 1.0
 
     # Optional rectangular processing ROI and exclusion zones.
     roi: Optional[Rect] = None
@@ -211,6 +216,47 @@ class ThermalBlobConfig:
     trail_length: int = 0  # 0 = full track history
     draw_roi: bool = True
     draw_exclude_zones: bool = True
+
+
+def blend_background(
+    old_background: Optional[np.ndarray], new_background: np.ndarray, alpha: float
+) -> np.ndarray:
+    """Blend background arrays, clamping alpha to the supported 0..1 range."""
+    alpha = max(0.0, min(1.0, float(alpha)))
+    if old_background is None:
+        return new_background
+    return ((1.0 - alpha) * old_background + alpha * new_background).astype(np.float32)
+
+
+def format_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    remaining_seconds = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{remaining_seconds:02d}"
+
+
+def build_progress_text(
+    frame_idx: int, total_frames: int, start_time: float, current_time: Optional[float] = None
+) -> str:
+    now = time.time() if current_time is None else current_time
+    elapsed = max(0.0, now - start_time)
+    processed = max(1, frame_idx + 1)
+    processing_fps = processed / elapsed if elapsed > 0 else 0.0
+
+    if total_frames > 0:
+        percent = min(100.0, 100.0 * processed / total_frames)
+        remaining = max(0, total_frames - processed)
+        eta = remaining / processing_fps if processing_fps > 0 else 0.0
+        return (
+            f"Frame {processed} / {total_frames} ({percent:.1f}%) | "
+            f"elapsed {format_duration(elapsed)} | ETA {format_duration(eta)} | "
+            f"{processing_fps:.1f} fps"
+        )
+    return (
+        f"Frame {processed} | elapsed {format_duration(elapsed)} | "
+        f"{processing_fps:.1f} fps"
+    )
 
 
 class ThermalBlobDetector:
@@ -240,6 +286,41 @@ class ThermalBlobDetector:
             gray = frame
         return gray.astype(np.float32)
 
+    def build_background_window(
+        self,
+        cap: cv2.VideoCapture,
+        start_frame: int,
+        sample_count: int,
+        stride: int,
+    ) -> np.ndarray:
+        """Build a background from a frame window without changing capture position."""
+        if sample_count <= 0:
+            raise ValueError("Background sample count must be greater than zero.")
+        if stride <= 0:
+            raise ValueError("Background sample stride must be greater than zero.")
+
+        original_position = cap.get(cv2.CAP_PROP_POS_FRAMES)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        samples: List[np.ndarray] = []
+        try:
+            for idx in range(sample_count):
+                frame_pos = start_frame + idx * stride
+                if frame_count > 0 and frame_pos >= frame_count:
+                    break
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                samples.append(self.frame_to_gray_float(frame))
+        finally:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, original_position)
+
+        if not samples:
+            raise RuntimeError("Could not sample frames for background model.")
+        return np.percentile(
+            np.stack(samples, axis=0), self.config.background_percentile, axis=0
+        ).astype(np.float32)
+
     def build_background(self, cap: cv2.VideoCapture) -> np.ndarray:
         """
         Build a static background model from sampled frames.
@@ -248,35 +329,24 @@ class ThermalBlobDetector:
         frame-to-frame difference because short-lived flying objects disappear
         from the median.
         """
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        samples: List[np.ndarray] = []
-
-        idx = 0
-        while len(samples) < self.config.background_frames:
-            frame_pos = idx * self.config.background_stride
-            if frame_count > 0 and frame_pos >= frame_count:
-                break
-
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
-            ok, frame = cap.read()
-            if not ok:
-                break
-
-            samples.append(self.frame_to_gray_float(frame))
-            idx += 1
-
-        if not samples:
-            raise RuntimeError("Could not sample frames for background model.")
-
-        stack = np.stack(samples, axis=0)
-        self.background = np.percentile(
-            stack,
-            self.config.background_percentile,
-            axis=0,
-        ).astype(np.float32)
-
+        self.background = self.build_background_window(
+            cap, 0, self.config.background_frames, self.config.background_stride
+        )
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         self.previous_gray = None
+        return self.background
+
+    def recalibrate_background(self, cap: cv2.VideoCapture, start_frame: int) -> np.ndarray:
+        """Blend a newly sampled background into the current model."""
+        new_background = self.build_background_window(
+            cap,
+            start_frame,
+            self.config.background_recalibrate_frames,
+            self.config.background_recalibrate_stride,
+        )
+        self.background = blend_background(
+            self.background, new_background, self.config.background_recalibrate_blend
+        )
         return self.background
 
     def detect(self, frame: np.ndarray, frame_idx: int) -> Tuple[List[BlobDetection], np.ndarray, np.ndarray]:
@@ -553,6 +623,7 @@ def draw_debug_overlay(
     frame_idx: int,
     counting_cfg: Optional[CountingConfig] = None,
     live_counter: Optional["LiveCounting"] = None,
+    progress_text: Optional[str] = None,
 ) -> np.ndarray:
     """
     Debug visualization mode.
@@ -599,6 +670,10 @@ def draw_debug_overlay(
         draw_counting_geometry(out, counting_cfg, live_counter)
     if live_counter is not None:
         draw_counting_hud(out, live_counter, frame_idx)
+    if progress_text:
+        y = max(18, out.shape[0] - 12)
+        cv2.putText(out, progress_text, (8, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(out, progress_text, (8, y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
 
 
     return out
@@ -1106,6 +1181,10 @@ def process_video(args: argparse.Namespace) -> None:
         background_frames=args.background_frames,
         background_stride=args.background_stride,
         background_percentile=args.background_percentile,
+        background_recalibrate_interval=args.background_recalibrate_interval,
+        background_recalibrate_frames=args.background_recalibrate_frames,
+        background_recalibrate_stride=args.background_recalibrate_stride,
+        background_recalibrate_blend=args.background_recalibrate_blend,
         roi=parse_rect(args.roi, "ROI"),
         exclude_zones=parse_rect_list(args.exclude_zone, "exclude zone"),
         draw_inactive_tracks=not args.hide_inactive_tracks,
@@ -1147,10 +1226,21 @@ def process_video(args: argparse.Namespace) -> None:
         is_countable_track=lambda track: is_valid_flying_track(track, cfg),
     )
     processed_frames = 0
+    progress_total = min(frame_count, args.max_frames) if frame_count > 0 and args.max_frames > 0 else frame_count
+    analysis_start_time = time.time()
+    final_progress_text = ""
 
     try:
         frame_idx = 0
         while True:
+            if (
+                cfg.background_recalibrate_interval > 0
+                and frame_idx > 0
+                and frame_idx % cfg.background_recalibrate_interval == 0
+            ):
+                detector.recalibrate_background(cap, frame_idx)
+                print(f"Background recalibrated at frame {frame_idx}.")
+
             ok, frame = cap.read()
             if not ok:
                 break
@@ -1158,7 +1248,10 @@ def process_video(args: argparse.Namespace) -> None:
             detections, _diff_u8, _mask = detector.detect(frame, frame_idx)
             detector.update_tracks(detections)
             live_counter.update(list(detector.tracks.values()), frame_idx)
-            debug_frame = draw_debug_overlay(frame, detections, detector, frame_idx, counting_cfg, live_counter)
+            final_progress_text = build_progress_text(frame_idx, progress_total, analysis_start_time)
+            debug_frame = draw_debug_overlay(
+                frame, detections, detector, frame_idx, counting_cfg, live_counter, final_progress_text
+            )
 
             if writer is not None:
                 writer.write(debug_frame)
@@ -1171,6 +1264,8 @@ def process_video(args: argparse.Namespace) -> None:
                     break
 
             processed_frames += 1
+            if processed_frames % 100 == 0:
+                print(final_progress_text)
             if args.max_frames and processed_frames >= args.max_frames:
                 break
 
@@ -1182,6 +1277,10 @@ def process_video(args: argparse.Namespace) -> None:
         live_counter.close()
         if args.show:
             cv2.destroyAllWindows()
+
+    if processed_frames > 0:
+        final_progress_text = build_progress_text(processed_frames - 1, progress_total, analysis_start_time)
+        print(final_progress_text)
 
     if csv_path:
         write_track_points_csv(csv_path, detector.tracks, fps, cfg)
@@ -1310,6 +1409,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--background-frames", type=int, default=200, help="Number of sampled frames for background model")
     parser.add_argument("--background-stride", type=int, default=10, help="Frame step between background samples")
     parser.add_argument("--background-percentile", type=float, default=50.0, help="Background percentile; 50=median")
+    parser.add_argument("--background-recalibrate-interval", type=int, default=0, help="Rebuild background every N processed frames; 0 disables")
+    parser.add_argument("--background-recalibrate-frames", type=int, default=200, help="Number of sampled frames for periodic background recalibration")
+    parser.add_argument("--background-recalibrate-stride", type=int, default=10, help="Frame step between periodic background samples")
+    parser.add_argument("--background-recalibrate-blend", type=float, default=1.0, help="New background blend strength from 0.0 to 1.0")
 
     parser.add_argument("--roi", default=None, help="Optional rectangular ROI as x,y,w,h")
     parser.add_argument(
