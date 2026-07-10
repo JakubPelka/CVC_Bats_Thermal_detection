@@ -54,6 +54,29 @@ def _default_counting_config_path() -> str:
     return _absolute_path("outputs/counting_config_drawn.json")
 
 
+def _resolve_counting_config_path(value: str, must_exist: bool = True) -> Path:
+    """Resolve a counting config, including paths saved on another OS/machine."""
+    raw = value.strip()
+    direct = Path(raw).expanduser()
+    if direct.exists():
+        return direct.resolve()
+
+    # Presets may contain an absolute Windows path. On Linux pathlib treats it
+    # as a relative filename, sometimes after an old cwd has already been added.
+    basename = raw.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    portable_candidates = [Path("outputs") / basename, Path(basename)]
+    for candidate in portable_candidates:
+        if candidate.exists():
+            return candidate.resolve()
+
+    if must_exist:
+        raise ValueError(
+            "Counting config not found:\n"
+            f"{value}\n\nSelect the JSON file again in Counting / Statistics."
+        )
+    return (Path("outputs") / basename).resolve()
+
+
 NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
     # key, CLI flag, type, default, label, explanation
     ("max_frames", "--max-frames", "int", "0", "Max frames, 0 = full video", "Limits processing for quick tests. Use 300-1000 while tuning; 0 processes the full video."),
@@ -651,7 +674,7 @@ class CountingConfigDrawingWindow(tk.Toplevel):
         target = self.counting_config_var.get().strip()
         if not target:
             target = _default_counting_config_path()
-        path = Path(target).expanduser().resolve()
+        path = _resolve_counting_config_path(target, must_exist=False)
         self.counting_config_var.set(str(path))
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -669,10 +692,15 @@ class CountingConfigDrawingWindow(tk.Toplevel):
 
     def _load_existing_config(self) -> None:
         target = self.counting_config_var.get().strip()
-        if not target or not Path(target).exists():
+        if not target:
             return
         try:
-            data = json.loads(Path(target).read_text(encoding="utf-8"))
+            path = _resolve_counting_config_path(target)
+        except ValueError:
+            return
+        self.counting_config_var.set(str(path))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return
         self.lines = []
@@ -1244,11 +1272,9 @@ class ThermalDetectorGUI(tk.Tk):
 
         counting_config = self.path_vars["counting_config"].get().strip()
         if counting_config:
-            counting_config = _absolute_path(counting_config)
+            counting_config = str(_resolve_counting_config_path(counting_config))
             self.path_vars["counting_config"].set(counting_config)
             cmd += ["--counting-config", counting_config]
-        if self.bool_vars.get("count_all_tracks") and self.bool_vars["count_all_tracks"].get():
-            cmd.append("--count-all-tracks")
 
         return cmd
 
