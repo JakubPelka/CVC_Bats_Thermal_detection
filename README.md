@@ -71,6 +71,33 @@ python src/thermal_blob_detector_mvp_v3_valid_tracks.py --input examples/sample.
 For fastest batch processing, omit `--show`. Passing `--output ""` disables
 annotated video writing.
 
+### Event clips
+
+For long videos, a full annotated output video can become large. Event clips
+export only short annotated sections around detected activity:
+
+```bash
+thermal-blob-detector \
+  --input input.mp4 \
+  --output "" \
+  --event-clips \
+  --event-clips-dir outputs/event_clips \
+  --event-clip-pre-frames 100 \
+  --event-clip-post-frames 100 \
+  --event-clip-merge-gap-frames 100
+```
+
+The full analysis runs first. The input is then re-opened and clips are drawn
+from the stored track detections. Overlapping or nearby activity windows are
+merged, so simultaneous tracks produce one clip rather than duplicates. The
+directory also receives `event_clips_manifest.csv` and
+`event_clips_manifest.json`.
+
+The default trigger is `valid_tracks`. Use `--event-clip-trigger` with
+`all_tracks`, `crossings`, `aois`, or `all_events` to select other completed
+analysis results. Event clips are disabled unless `--event-clips` is supplied,
+and are independent of the normal `--output` annotated video.
+
 ### Periodic background recalibration
 
 Long thermal recordings can drift in apparent temperature or contrast. Enable

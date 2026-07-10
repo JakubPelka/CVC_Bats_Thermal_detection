@@ -21,6 +21,7 @@ thermal-blob-detector-gui = "gui:main"
 package-dir = {"" = "src"}
 py-modules = [
     "counting_stats",
+    "event_clips",
     "gui",
     "thermal_blob_detector",
     "thermal_blob_detector_gui",

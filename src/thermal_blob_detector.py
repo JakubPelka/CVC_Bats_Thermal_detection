@@ -53,6 +53,13 @@ from counting_stats import (
     _polyline_side,
     _time_s,
 )
+from event_clips import (
+    ClipWindow,
+    build_clip_windows,
+    export_event_clips,
+    merge_clip_windows,
+    write_clip_manifest,
+)
 
 
 Point = Tuple[float, float]
@@ -973,6 +980,48 @@ def draw_counting_hud(frame: np.ndarray, live_counter: LiveCounting, frame_idx: 
         y += 20
 
 
+def draw_event_clip_overlay(
+    frame: np.ndarray,
+    frame_idx: int,
+    window: ClipWindow,
+    tracks: Dict[int, Track],
+    counting_cfg: CountingConfig,
+    cfg: ThermalBlobConfig,
+    clip_idx: int,
+    clip_count: int,
+) -> np.ndarray:
+    """Draw stored track history without relying on live detector state."""
+    out = frame.copy()
+    if out.ndim == 2:
+        out = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
+    for track_id in sorted(window.track_ids):
+        track = tracks.get(track_id)
+        if track is None:
+            continue
+        detections = [
+            det for det in track.detections
+            if window.start_frame <= det.frame_idx <= frame_idx
+        ]
+        if cfg.trail_length > 0:
+            detections = detections[-cfg.trail_length:]
+        color = color_for_track(track_id)
+        for idx in range(1, len(detections)):
+            cv2.line(out, tuple_int(detections[idx - 1].centroid), tuple_int(detections[idx].centroid), color, 2, cv2.LINE_AA)
+        current = next((det for det in reversed(detections) if det.frame_idx == frame_idx), None)
+        if current is not None:
+            cv2.circle(out, tuple_int(current.centroid), 4, color, -1, cv2.LINE_AA)
+            cv2.putText(out, str(track_id), tuple_int(current.centroid), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
+    draw_counting_geometry(out, counting_cfg)
+    source_text = ",".join(sorted(window.sources))
+    hud = (
+        f"Clip {clip_idx} / {clip_count} | Frame {window.start_frame}-{window.end_frame} | "
+        f"tracks: {len(window.track_ids)} | source: {source_text}"
+    )
+    cv2.putText(out, hud, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 0, 0), 3, cv2.LINE_AA)
+    cv2.putText(out, hud, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (255, 255, 255), 1, cv2.LINE_AA)
+    return out
+
+
 def _polygon_label_point(points: Sequence[Point]) -> Point:
     if not points:
         return 0.0, 0.0
@@ -1321,6 +1370,35 @@ def process_video(args: argparse.Namespace) -> None:
         write_counting_config_json(counting_config_out_path, counting_cfg)
         print(f"Counting config JSON written: {counting_config_out_path}")
 
+    if args.event_clips:
+        print("Event clips enabled.")
+        print(f"Building event clip windows from {args.event_clip_trigger}...")
+        clip_total_frames = processed_frames if processed_frames > 0 else frame_count
+        raw_windows = build_clip_windows(
+            tracks=detector.tracks.values(), crossings=counting_results.crossings,
+            aoi_events=counting_results.aoi_events, trigger=args.event_clip_trigger,
+            pre_frames=args.event_clip_pre_frames, post_frames=args.event_clip_post_frames,
+            total_frames=clip_total_frames, min_track_lifetime=cfg.min_track_lifetime,
+            is_valid_track=lambda track: is_valid_flying_track(track, cfg),
+        )
+        windows = merge_clip_windows(raw_windows, args.event_clip_merge_gap_frames)
+        print(f"Raw windows: {len(raw_windows)}")
+        print(f"Merged windows: {len(windows)}")
+        if not windows:
+            print("No event clip windows found; no clips were written.")
+        else:
+            event_clips_dir = Path(args.event_clips_dir)
+            manifest = export_event_clips(
+                input_path, event_clips_dir, windows, fps, width, height,
+                args.event_clip_fourcc,
+                lambda frame, frame_idx, window, clip_idx, clip_count: draw_event_clip_overlay(
+                    frame, frame_idx, window, detector.tracks, counting_cfg, cfg, clip_idx, clip_count
+                ),
+                {track.track_id for track in detector.valid_tracks()},
+            )
+            write_clip_manifest(event_clips_dir, manifest)
+            print(f"Event clip manifest written: {event_clips_dir / 'event_clips_manifest.csv'}")
+
     if output_path:
         print(f"Debug video written: {output_path}")
 
@@ -1379,6 +1457,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--counting-config-out", default="", help="Optional path to save the effective counting config JSON")
     parser.add_argument("--show", action="store_true", help="Show live preview window")
     parser.add_argument("--max-frames", type=int, default=0, help="Optional processing limit for quick tests")
+    parser.add_argument("--event-clips", action="store_true", help="Export annotated activity clips after analysis")
+    parser.add_argument("--event-clips-dir", default="event_clips", help="Output directory for event clips and manifests")
+    parser.add_argument("--event-clip-pre-frames", type=int, default=100, help="Frames included before each activity window")
+    parser.add_argument("--event-clip-post-frames", type=int, default=100, help="Frames included after each activity window")
+    parser.add_argument("--event-clip-merge-gap-frames", type=int, default=100, help="Maximum gap between windows to merge")
+    parser.add_argument(
+        "--event-clip-trigger", default="valid_tracks",
+        choices=("valid_tracks", "all_tracks", "crossings", "aois", "all_events"),
+        help="Activity source used to create event clip windows",
+    )
+    parser.add_argument("--event-clip-fourcc", default="mp4v", help="FourCC codec for event clip video output")
 
     parser.add_argument("--threshold", type=float, default=18.0, help="Brightness difference threshold above background")
     parser.add_argument("--motion-gate", action="store_true", help="Require both bright-above-background and frame-to-frame motion")
