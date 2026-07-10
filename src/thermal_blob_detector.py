@@ -32,6 +32,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
+from batch_processing import (
+    build_output_paths,
+    collect_input_videos,
+    safe_stem,
+    write_batch_summary,
+)
+
 from counting_stats import (
     AoiEvent,
     CountingAoi,
@@ -1190,19 +1197,37 @@ def parse_rect_list(values: Optional[List[str]], argument_name: str = "rectangle
     return rects
 
 
-def process_video(args: argparse.Namespace) -> None:
-    input_path = Path(args.input)
+def process_single_video(
+    input_path: Path,
+    args: argparse.Namespace,
+    output_paths: Optional[Dict[str, object]] = None,
+) -> dict:
+    """Run detection, statistics, and optional event clips for one video."""
+    run_started = time.time()
     if not input_path.exists():
         raise FileNotFoundError(f"Input video not found: {input_path}")
 
-    output_path = Path(args.output) if args.output else None
-    csv_path = Path(args.csv) if args.csv else None
-    summary_csv_path = Path(args.summary_csv) if args.summary_csv else None
-    crossings_csv_path = Path(args.crossings_csv) if args.crossings_csv else None
-    aoi_events_csv_path = Path(args.aoi_events_csv) if args.aoi_events_csv else None
-    activity_csv_path = Path(args.activity_csv) if args.activity_csv else None
-    run_summary_json_path = Path(args.run_summary_json) if args.run_summary_json else None
-    counting_config_out_path = Path(args.counting_config_out) if args.counting_config_out else None
+    if output_paths is None:
+        output_path = Path(args.output) if args.output else None
+        csv_path = Path(args.csv) if args.csv else None
+        summary_csv_path = Path(args.summary_csv) if args.summary_csv else None
+        crossings_csv_path = Path(args.crossings_csv) if args.crossings_csv else None
+        aoi_events_csv_path = Path(args.aoi_events_csv) if args.aoi_events_csv else None
+        activity_csv_path = Path(args.activity_csv) if args.activity_csv else None
+        run_summary_json_path = Path(args.run_summary_json) if args.run_summary_json else None
+        counting_config_out_path = Path(args.counting_config_out) if args.counting_config_out else None
+        default_clip_dir = Path(args.batch_output_dir) / safe_stem(input_path) / f"{safe_stem(input_path)}_event_clips"
+        event_clips_dir = Path(args.event_clips_dir) if args.event_clips_dir else default_clip_dir
+    else:
+        output_path = output_paths.get("annotated_video")
+        csv_path = output_paths.get("track_points_csv")
+        summary_csv_path = output_paths.get("track_summary_csv")
+        crossings_csv_path = output_paths.get("crossings_csv")
+        aoi_events_csv_path = output_paths.get("aoi_events_csv")
+        activity_csv_path = output_paths.get("activity_csv")
+        run_summary_json_path = output_paths.get("run_summary_json")
+        counting_config_out_path = output_paths.get("counting_config_out")
+        event_clips_dir = output_paths["event_clips_dir"]
 
     cfg = ThermalBlobConfig(
         threshold=args.threshold,
@@ -1387,7 +1412,6 @@ def process_video(args: argparse.Namespace) -> None:
         if not windows:
             print("No event clip windows found; no clips were written.")
         else:
-            event_clips_dir = Path(args.event_clips_dir)
             manifest = export_event_clips(
                 input_path, event_clips_dir, windows, fps, width, height,
                 args.event_clip_fourcc,
@@ -1413,6 +1437,73 @@ def process_video(args: argparse.Namespace) -> None:
     print(f"Valid flying tracks: {len(valid)}")
     print(f"Line crossings: {len(counting_results.crossings)}")
     print(f"AOI events: {len(counting_results.aoi_events)}")
+    return {
+        "run_summary_json": str(run_summary_json_path) if run_summary_json_path else "",
+        "track_points_csv": str(csv_path) if csv_path else "",
+        "track_summary_csv": str(summary_csv_path) if summary_csv_path else "",
+        "crossings_csv": str(crossings_csv_path) if crossings_csv_path else "",
+        "aoi_events_csv": str(aoi_events_csv_path) if aoi_events_csv_path else "",
+        "activity_csv": str(activity_csv_path) if activity_csv_path else "",
+        "event_clips_dir": str(event_clips_dir) if args.event_clips else "",
+        "processed_frames": processed_frames,
+        "valid_tracks": len(valid),
+        "line_crossings": len(counting_results.crossings),
+        "aoi_events": len(counting_results.aoi_events),
+        "event_clip_count": len(manifest) if args.event_clips and windows else 0,
+        "elapsed_seconds": round(time.time() - run_started, 3),
+    }
+
+
+def process_video(args: argparse.Namespace) -> dict:
+    """Backward-compatible single-input entry point."""
+    if not args.input:
+        raise ValueError("process_video requires --input")
+    return process_single_video(Path(args.input), args)
+
+
+def process_batch(args: argparse.Namespace) -> List[dict]:
+    input_paths = collect_input_videos(args)
+    if not input_paths:
+        raise ValueError("No matching input videos found")
+    batch_output_dir = Path(args.batch_output_dir)
+    print(f"Found {len(input_paths)} input videos.")
+    if args.event_clips_dir and len(input_paths) > 1:
+        print("WARNING: --event-clips-dir is shared in batch mode; clip filenames may collide between videos.")
+    rows: List[dict] = []
+    for index, input_path in enumerate(input_paths, start=1):
+        print(f"[{index}/{len(input_paths)}] Processing: {input_path}")
+        paths = build_output_paths(input_path, batch_output_dir, args)
+        paths["output_dir"].mkdir(parents=True, exist_ok=True)
+        summary_path = paths.get("run_summary_json")
+        if args.skip_existing and summary_path and summary_path.exists():
+            print(f"Skipping existing result: {summary_path}")
+            rows.append({
+                "input_path": str(input_path), "status": "skipped", "error": "",
+                "output_dir": str(paths["output_dir"]), "run_summary_json": str(summary_path),
+            })
+            continue
+        try:
+            result = process_single_video(input_path, args, paths)
+            rows.append({
+                "input_path": str(input_path), "status": "ok", "error": "",
+                "output_dir": str(paths["output_dir"]), **result,
+            })
+            print(f"Done: {input_path}")
+        except Exception as exc:
+            if not args.continue_on_error:
+                write_batch_summary(batch_output_dir, rows + [{
+                    "input_path": str(input_path), "status": "error", "error": str(exc),
+                    "output_dir": str(paths["output_dir"]),
+                }])
+                raise
+            print(f"ERROR processing {input_path}: {exc}")
+            rows.append({
+                "input_path": str(input_path), "status": "error", "error": str(exc),
+                "output_dir": str(paths["output_dir"]),
+            })
+    write_batch_summary(batch_output_dir, rows)
+    print(f"Batch summary written: {batch_output_dir / 'batch_summary.csv'}")
+    return rows
 
 
 def build_counting_config_from_args(args: argparse.Namespace) -> CountingConfig:
@@ -1446,7 +1537,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Draws valid flight-like tracks by default and can export track-based line/AOI counting statistics."
         )
     )
-    parser.add_argument("--input", required=True, help="Input thermal video file")
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument("--input", default="", help="Input thermal video file")
+    input_group.add_argument("--inputs", nargs="+", default=None, help="Explicit list of input video files")
+    input_group.add_argument("--input-dir", default="", help="Folder containing input videos")
+    parser.add_argument("--recursive", action="store_true", help="Recursively scan --input-dir")
+    parser.add_argument("--video-extensions", default=".mp4,.avi,.mov,.mkv", help="Comma-separated extensions for folder scans")
+    parser.add_argument("--batch-output-dir", default="outputs", help="Root output directory for batch results")
+    parser.add_argument("--continue-on-error", action="store_true", help="Continue processing after a video fails")
+    parser.add_argument("--skip-existing", action="store_true", help="Skip videos whose derived run summary already exists")
     parser.add_argument("--output", default="thermal_blob_valid_tracks.mp4", help="Output debug video path")
     parser.add_argument("--csv", default="thermal_blob_track_points.csv", help="Output CSV path for per-detection track points")
     parser.add_argument("--summary-csv", default="thermal_blob_track_summary.csv", help="Enhanced output CSV path for per-track summary")
@@ -1458,7 +1557,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--show", action="store_true", help="Show live preview window")
     parser.add_argument("--max-frames", type=int, default=0, help="Optional processing limit for quick tests")
     parser.add_argument("--event-clips", action="store_true", help="Export annotated activity clips after analysis")
-    parser.add_argument("--event-clips-dir", default="event_clips", help="Output directory for event clips and manifests")
+    parser.add_argument("--event-clips-dir", default="", help="Optional event clip directory override")
     parser.add_argument("--event-clip-pre-frames", type=int, default=100, help="Frames included before each activity window")
     parser.add_argument("--event-clip-post-frames", type=int, default=100, help="Frames included after each activity window")
     parser.add_argument("--event-clip-merge-gap-frames", type=int, default=100, help="Maximum gap between windows to merge")
@@ -1542,7 +1641,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
-    process_video(args)
+    if args.input:
+        process_video(args)
+    else:
+        process_batch(args)
 
 
 if __name__ == "__main__":

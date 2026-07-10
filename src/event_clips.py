@@ -105,7 +105,7 @@ def merge_clip_windows(windows: Iterable[ClipWindow], merge_gap_frames: int) -> 
 
 def build_clip_filename(clip_idx: int, window: ClipWindow) -> str:
     ids = sorted(window.track_ids)
-    tracks = "none" if not ids else "-".join(map(str, ids)) if len(ids) <= 6 else str(len(ids))
+    tracks = str(len(ids))
     return f"clip_{clip_idx:04d}_f{window.start_frame:06d}_f{window.end_frame:06d}_tracks_{tracks}.mp4"
 
 

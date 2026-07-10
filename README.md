@@ -98,6 +98,44 @@ The default trigger is `valid_tracks`. Use `--event-clip-trigger` with
 analysis results. Event clips are disabled unless `--event-clips` is supplied,
 and are independent of the normal `--output` annotated video.
 
+When `--event-clips-dir` is omitted, clips use
+`outputs/<video_stem>/<video_stem>_event_clips/`. A custom directory is used
+exactly as supplied; avoid sharing one custom directory across a batch because
+clip filenames can collide.
+
+### Batch processing
+
+Process an explicit list of videos:
+
+```bash
+thermal-blob-detector \
+  --inputs data/night_001.mp4 data/night_002.mp4 \
+  --batch-output-dir outputs \
+  --event-clips
+```
+
+Or scan a folder and its subfolders using the configured video extensions:
+
+```bash
+thermal-blob-detector \
+  --input-dir data/thermal_recordings \
+  --recursive \
+  --video-extensions .mp4,.avi,.mov,.mkv \
+  --batch-output-dir outputs \
+  --event-clips \
+  --event-clip-pre-frames 100 \
+  --event-clip-post-frames 100
+```
+
+Exactly one of `--input`, `--inputs`, or `--input-dir` is required. Batch mode
+creates `outputs/<video_stem>/` for each input, using stem-prefixed CSV, JSON,
+and optional annotated-video filenames. It also writes `batch_summary.csv` and
+`batch_summary.json` in the batch output root. Use `--skip-existing` to skip a
+video when its derived run summary exists, and `--continue-on-error` to record a
+failure and continue with later inputs. The normal annotated video remains
+independent from event clips: pass `--output ""` to disable full annotated
+videos for a batch while still using `--event-clips`.
+
 ### Periodic background recalibration
 
 Long thermal recordings can drift in apparent temperature or contrast. Enable
