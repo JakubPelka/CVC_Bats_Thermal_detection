@@ -21,10 +21,17 @@ thermal-blob-detector-gui = "gui:main"
 package-dir = {"" = "src"}
 py-modules = [
     "counting_stats",
+    "counting_geometry",
+    "counting_models",
     "batch_processing",
     "event_clips",
     "gui",
+    "gui_command",
     "thermal_blob_detector",
     "thermal_blob_detector_gui",
     "thermal_blob_detector_mvp_v3_valid_tracks",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["thermal_bat*"]

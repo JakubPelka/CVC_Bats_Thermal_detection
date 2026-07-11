@@ -1,7 +1,12 @@
 README.md
 pyproject.toml
+src/batch_processing.py
+src/counting_geometry.py
+src/counting_models.py
 src/counting_stats.py
+src/event_clips.py
 src/gui.py
+src/gui_command.py
 src/thermal_blob_detector.py
 src/thermal_blob_detector_gui.py
 src/thermal_blob_detector_mvp_v3_valid_tracks.py
@@ -11,4 +16,12 @@ src/cvc_bats_thermal_detection.egg-info/dependency_links.txt
 src/cvc_bats_thermal_detection.egg-info/entry_points.txt
 src/cvc_bats_thermal_detection.egg-info/requires.txt
 src/cvc_bats_thermal_detection.egg-info/top_level.txt
+src/thermal_bat/__init__.py
+src/thermal_bat/config.py
+src/thermal_bat/models.py
+src/thermal_bat/validation.py
+tests/test_background_progress.py
+tests/test_batch_processing.py
 tests/test_counting_stats.py
+tests/test_event_clips.py
+tests/test_gui_command.py

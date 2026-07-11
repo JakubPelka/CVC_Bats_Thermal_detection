@@ -11,8 +11,19 @@ outputs plus an optional annotated video.
 ```text
 .
 |-- src/
-|   |-- thermal_blob_detector.py  # detector CLI and processing logic
+|   |-- thermal_blob_detector.py  # compatibility facade and module entry point
 |   |-- gui.py                    # Tkinter parameter GUI
+|   |-- thermal_bat/              # detector package
+|   |   |-- cli.py                # command-line parser
+|   |   |-- pipeline.py           # single-video and batch orchestration
+|   |   |-- detector.py           # background, blob detection and tracking
+|   |   |-- live_counting.py      # streaming line/AOI counting
+|   |   |-- exports.py            # detector-specific CSV exports
+|   |   |-- visualization.py      # preview and event-clip overlays
+|   |   `-- models.py             # shared track/detection models
+|   |-- counting_models.py        # counting/event data models
+|   |-- counting_geometry.py      # pure line/AOI geometry
+|   |-- gui_command.py            # Tk-independent CLI command builder
 |   |-- thermal_blob_detector_mvp_v3_valid_tracks.py  # legacy CLI wrapper
 |   `-- thermal_blob_detector_gui.py                  # legacy GUI wrapper
 |-- docs/                         # detailed usage notes
@@ -32,6 +43,9 @@ pip install -e .
 This installs the two console commands shown below. If you change
 `pyproject.toml`, run `pip install -e .` again so the editable install is
 refreshed.
+
+The built-in detector and GUI defaults follow `presets/working_detect.json`.
+The preset browser opens the repository `presets/` directory by default.
 
 For a no-install quick setup, install only the runtime requirements and use the
 `python src/...` or `PYTHONPATH=src python -m ...` commands:
@@ -70,6 +84,48 @@ python src/thermal_blob_detector_mvp_v3_valid_tracks.py --input examples/sample.
 
 For fastest batch processing, omit `--show`. Passing `--output ""` disables
 annotated video writing.
+
+For maximum analysis throughput, use `--output ""` without `--show`. This
+skips all per-frame track, HUD, and counting-geometry drawing while preserving
+the final CSV/JSON analysis and optional post-run event clips. For a long debug
+video, `--hide-inactive-tracks --trail-length 120` keeps overlay work bounded.
+Using `--trail-length 0` draws full track histories and becomes slower as long
+videos accumulate tracks.
+
+The live overlay keeps an incremental index of valid tracks, so normal preview
+and annotated-video rendering no longer revalidates every historical rejected
+track on every frame. Periodic background recalibration still causes expected
+short FPS dips because it samples and rebuilds the background model.
+Progress logs report both cumulative FPS and `recent` FPS over the latest 100
+frames. The recent value makes recalibration pauses distinguishable from actual
+per-frame slowdown.
+
+Tracks made exclusively from tiny noise blobs can be rejected with
+`--min-track-max-blob-area`. Unlike an exclusion zone, this filter does not
+depend on where activity occurs: at least one detection in the track must reach
+the configured area. `0` disables it; for the analyzed `Drzewo.mp4` recording,
+`14` is a useful starting value for the maximum-area requirement.
+
+`--min-track-mean-blob-area` checks the average detection area over the whole
+track. It is less sensitive to a single enlarged noise blob and is useful for
+rejecting tracks assembled from tiny moving foliage or compression artefacts.
+`0` disables it; `8` is the recommended starting value for `Drzewo.mp4`.
+Bounding-box width and height filters were replaced by these area-based track
+filters because small thermal targets may legitimately be narrow or streaked.
+The former width/height CLI options remain accepted only for compatibility with
+old scripts and no longer affect detection.
+
+To analyze only an inclusive source-frame range, use for example:
+
+```bash
+thermal-blob-detector \
+  --input input/Drzewo.mp4 \
+  --start-frame 42000 \
+  --end-frame 46000
+```
+
+`--end-frame 0` means the end of the video. Frame numbers stored in tracks,
+CSV files and event-clip manifests remain absolute source-video frame numbers.
 
 ### Event clips
 

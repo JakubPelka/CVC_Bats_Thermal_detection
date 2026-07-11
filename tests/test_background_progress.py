@@ -1,6 +1,7 @@
 import unittest
 import sys
 import types
+import inspect
 
 import numpy as np
 
@@ -8,11 +9,15 @@ cv2 = types.SimpleNamespace(CAP_PROP_FRAME_COUNT=7, CAP_PROP_POS_FRAMES=1)
 sys.modules.setdefault("cv2", cv2)
 
 from thermal_blob_detector import (
+    BlobDetection,
+    Track,
     ThermalBlobConfig,
     ThermalBlobDetector,
     blend_background,
     build_progress_text,
     format_duration,
+    is_valid_flying_track,
+    draw_counting_geometry,
 )
 
 
@@ -65,6 +70,53 @@ class BackgroundAndProgressTests(unittest.TestCase):
         self.assertEqual(known, "Frame 50 / 100 (50.0%) | elapsed 00:00:10 | ETA 00:00:10 | 5.0 fps")
         unknown = build_progress_text(49, 0, start_time=10.0, current_time=20.0)
         self.assertEqual(unknown, "Frame 50 | elapsed 00:00:10 | 5.0 fps")
+
+    def _area_filter_config(self):
+        return ThermalBlobConfig(
+            min_track_lifetime=2, min_track_displacement=0.0,
+            min_track_path_length=0.0, min_mean_speed=0.0,
+            max_mean_speed=1000.0, min_directionality=0.0,
+            min_track_max_blob_area=8,
+            min_track_mean_blob_area=0.0,
+        )
+
+    def test_min_track_max_blob_area_rejects_tiny_noise_track(self):
+        track = Track(track_id=1, detections=[
+            BlobDetection(0, (0.0, 0.0), (0, 0, 2, 2), 4, 20.0, 30.0, 0.5),
+            BlobDetection(1, (10.0, 0.0), (10, 0, 2, 2), 4, 20.0, 30.0, 0.5),
+        ])
+        self.assertFalse(is_valid_flying_track(track, self._area_filter_config()))
+
+    def test_min_track_max_blob_area_accepts_one_large_detection(self):
+        track = Track(track_id=1, detections=[
+            BlobDetection(0, (0.0, 0.0), (0, 0, 2, 2), 4, 20.0, 30.0, 0.5),
+            BlobDetection(1, (10.0, 0.0), (10, 0, 3, 3), 9, 20.0, 30.0, 0.5),
+        ])
+        self.assertTrue(is_valid_flying_track(track, self._area_filter_config()))
+
+    def test_min_track_mean_blob_area_rejects_track_made_from_tiny_blobs(self):
+        cfg = self._area_filter_config()
+        cfg.min_track_max_blob_area = 0
+        cfg.min_track_mean_blob_area = 8.0
+        track = Track(track_id=1, detections=[
+            BlobDetection(0, (0.0, 0.0), (0, 0, 2, 2), 4, 20.0, 30.0, 0.5),
+            BlobDetection(1, (10.0, 0.0), (10, 0, 3, 3), 9, 20.0, 30.0, 0.5),
+        ])
+        self.assertFalse(is_valid_flying_track(track, cfg))
+
+    def test_min_track_mean_blob_area_accepts_sustained_larger_blobs(self):
+        cfg = self._area_filter_config()
+        cfg.min_track_max_blob_area = 0
+        cfg.min_track_mean_blob_area = 8.0
+        track = Track(track_id=1, detections=[
+            BlobDetection(0, (0.0, 0.0), (0, 0, 3, 3), 8, 20.0, 30.0, 0.5),
+            BlobDetection(1, (10.0, 0.0), (10, 0, 3, 3), 10, 20.0, 30.0, 0.5),
+        ])
+        self.assertTrue(is_valid_flying_track(track, cfg))
+
+    def test_counting_geometry_live_counter_is_optional_for_event_clips(self):
+        parameter = inspect.signature(draw_counting_geometry).parameters["live_counter"]
+        self.assertIsNone(parameter.default)
 
 
 if __name__ == "__main__":

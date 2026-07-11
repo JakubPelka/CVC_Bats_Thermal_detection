@@ -5,111 +5,24 @@ from __future__ import annotations
 import csv
 import json
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-
-Point = Tuple[float, float]
-Rect = Tuple[float, float, float, float]
-
-
-@dataclass
-class CountingLine:
-    id: str
-    name: str
-    p1: Point
-    p2: Point
-    positive_label: str = "positive"
-    negative_label: str = "negative"
-    enabled: bool = True
-    points: Optional[List[Point]] = None
-
-
-@dataclass
-class CountingAoi:
-    id: str
-    name: str
-    coordinates: Any
-    enabled: bool = True
-    type: str = "rectangle"
-
-
-@dataclass
-class CountingConfig:
-    lines: List[CountingLine] = field(default_factory=list)
-    aois: List[CountingAoi] = field(default_factory=list)
-    line_crossing_epsilon: float = 1.0
-    min_frames_between_same_line_crossing: int = 3
-    aoi_boundary_debounce_frames: int = 3
-    activity_bin_seconds: float = 60.0
-    count_valid_tracks_only: bool = True
-
-
-@dataclass
-class CrossingEvent:
-    event_id: str
-    track_id: int
-    line_id: str
-    line_name: str
-    direction: str
-    frame: int
-    time_s: float
-    cx: float
-    cy: float
-
-
-@dataclass
-class AoiEvent:
-    event_id: str
-    track_id: int
-    aoi_id: str
-    aoi_name: str
-    event_type: str
-    frame: int
-    time_s: float
-    cx: float
-    cy: float
-    start_frame: Optional[int] = None
-    end_frame: Optional[int] = None
-    dwell_time_s: Optional[float] = None
-
-
-@dataclass
-class TrackSummary:
-    track_id: int
-    valid: bool
-    first_frame: int
-    last_frame: int
-    start_time_s: float
-    end_time_s: float
-    lifetime_frames: int
-    duration_s: float
-    start_x: float
-    start_y: float
-    end_x: float
-    end_y: float
-    net_displacement_px: float
-    path_length_px: float
-    mean_speed_px_per_frame: float
-    mean_speed_px_per_second: float
-    directionality: float
-    max_blob_area: int
-    mean_blob_area: float
-    max_score: float
-    mean_score: float
-    crossing_count: int
-    aoi_entry_count: int
-    aoi_exit_count: int
-
-
-@dataclass
-class CountingResults:
-    crossings: List[CrossingEvent]
-    aoi_events: List[AoiEvent]
-    activity_rows: List[Dict[str, Any]]
-    track_summaries: List[TrackSummary]
-    run_summary: Dict[str, Any]
+from counting_geometry import (
+    _line_points,
+    _polyline_crossing_sign,
+    _polyline_side,
+    _segments_intersect,
+    _signed_side,
+    point_in_aoi,
+    point_in_polygon,
+    point_in_rect,
+)
+from counting_models import (
+    AoiEvent, CountingAoi, CountingConfig, CountingLine, CountingResults,
+    CrossingEvent, Point, Rect, TrackSummary,
+)
 
 
 def load_counting_config(path: Path) -> CountingConfig:
@@ -672,34 +585,6 @@ def write_counting_config_json(path: Path, cfg: CountingConfig) -> None:
 
 
 
-def point_in_rect(point: Point, rect: Rect) -> bool:
-    x, y = point
-    rx, ry, rw, rh = rect
-    return rx <= x <= rx + rw and ry <= y <= ry + rh
-
-
-
-def point_in_aoi(point: Point, aoi: CountingAoi) -> bool:
-    if aoi.type == "polygon":
-        return point_in_polygon(point, aoi.coordinates)
-    return point_in_rect(point, aoi.coordinates)
-
-
-def point_in_polygon(point: Point, polygon: Sequence[Point]) -> bool:
-    if len(polygon) < 3:
-        return False
-    x, y = point
-    inside = False
-    for idx in range(len(polygon)):
-        x1, y1 = polygon[idx]
-        x2, y2 = polygon[(idx + 1) % len(polygon)]
-        if (y1 > y) != (y2 > y):
-            x_at_y = (x2 - x1) * (y - y1) / ((y2 - y1) or 1e-12) + x1
-            if x < x_at_y:
-                inside = not inside
-    return inside
-
-
 def _line_from_dict(item: Dict[str, Any], idx: int) -> CountingLine:
     line_id = str(item.get("id", item.get("name", f"line_{idx}")))
     name = str(item.get("name", line_id))
@@ -757,85 +642,6 @@ def _json_coordinates(coordinates: Any) -> Any:
     if isinstance(coordinates, list):
         return [list(point) if isinstance(point, tuple) else point for point in coordinates]
     return coordinates
-
-
-def _line_points(line: CountingLine) -> List[Point]:
-    if line.points and len(line.points) >= 2:
-        return [(float(x), float(y)) for x, y in line.points]
-    return [line.p1, line.p2]
-
-
-def _polyline_side(points: Sequence[Point], point: Point, epsilon: float) -> int:
-    best_idx = 0
-    best_dist = float("inf")
-    for idx in range(len(points) - 1):
-        dist = _point_to_segment_distance_sq(points[idx], points[idx + 1], point)
-        if dist < best_dist:
-            best_dist = dist
-            best_idx = idx
-    return _signed_side(points[best_idx], points[best_idx + 1], point, epsilon)
-
-
-def _polyline_crossing_sign(previous_point: Point, current_point: Point, points: Sequence[Point], epsilon: float) -> Optional[int]:
-    for idx in range(len(points) - 1):
-        a = points[idx]
-        b = points[idx + 1]
-        if not _segments_intersect(previous_point, current_point, a, b):
-            continue
-        previous_side = _signed_side(a, b, previous_point, epsilon)
-        current_side = _signed_side(a, b, current_point, epsilon)
-        if previous_side < 0 and current_side > 0:
-            return 1
-        if previous_side > 0 and current_side < 0:
-            return -1
-    return None
-
-
-def _signed_side(a: Point, b: Point, point: Point, epsilon: float) -> int:
-    cross = (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0])
-    if abs(cross) <= epsilon:
-        return 0
-    return 1 if cross > 0 else -1
-
-
-def _point_to_segment_distance_sq(a: Point, b: Point, point: Point) -> float:
-    ax, ay = a
-    bx, by = b
-    px, py = point
-    vx, vy = bx - ax, by - ay
-    wx, wy = px - ax, py - ay
-    length_sq = vx * vx + vy * vy
-    t = 0.0 if length_sq == 0 else max(0.0, min(1.0, (wx * vx + wy * vy) / length_sq))
-    cx, cy = ax + t * vx, ay + t * vy
-    return (px - cx) ** 2 + (py - cy) ** 2
-
-
-def _segments_intersect(p1: Point, p2: Point, q1: Point, q2: Point) -> bool:
-    def orient(a: Point, b: Point, c: Point) -> int:
-        value = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-        return 1 if value > 0 else (-1 if value < 0 else 0)
-
-    def on_segment(a: Point, b: Point, c: Point) -> bool:
-        return (
-            min(a[0], b[0]) - 1e-6 <= c[0] <= max(a[0], b[0]) + 1e-6
-            and min(a[1], b[1]) - 1e-6 <= c[1] <= max(a[1], b[1]) + 1e-6
-        )
-
-    o1 = orient(p1, p2, q1)
-    o2 = orient(p1, p2, q2)
-    o3 = orient(q1, q2, p1)
-    o4 = orient(q1, q2, p2)
-    if o1 != o2 and o3 != o4:
-        return True
-    if o1 == 0 and on_segment(p1, p2, q1):
-        return True
-    if o2 == 0 and on_segment(p1, p2, q2):
-        return True
-    if o3 == 0 and on_segment(q1, q2, p1):
-        return True
-    if o4 == 0 and on_segment(q1, q2, p2):
-        return True
-    return False
 
 
 def _line_side(point: Point, line: CountingLine, epsilon: float) -> int:

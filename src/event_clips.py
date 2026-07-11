@@ -128,12 +128,15 @@ def export_event_clips(
         for clip_idx, window in enumerate(windows, start=1):
             filename = build_clip_filename(clip_idx, window)
             output_path = output_dir / filename
+            temporary_path = output_dir / f".{output_path.stem}.part{output_path.suffix}"
             print(f"Writing event clip {clip_idx}/{len(windows)}: {output_path}")
-            writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*fourcc), fps, (width, height))
+            temporary_path.unlink(missing_ok=True)
+            writer = cv2.VideoWriter(str(temporary_path), cv2.VideoWriter_fourcc(*fourcc), fps, (width, height))
             if not writer.isOpened():
-                raise RuntimeError(f"Could not create event clip: {output_path}")
+                raise RuntimeError(f"Could not create event clip: {temporary_path}")
             cap.set(cv2.CAP_PROP_POS_FRAMES, window.start_frame)
             frame_idx = window.start_frame
+            written_frames = 0
             try:
                 while frame_idx <= window.end_frame:
                     ok, frame = cap.read()
@@ -141,8 +144,17 @@ def export_event_clips(
                         break
                     writer.write(annotate(frame, frame_idx, window, clip_idx, len(windows)))
                     frame_idx += 1
-            finally:
+                    written_frames += 1
+            except BaseException:
                 writer.release()
+                temporary_path.unlink(missing_ok=True)
+                raise
+            else:
+                writer.release()
+            if written_frames == 0:
+                temporary_path.unlink(missing_ok=True)
+                raise RuntimeError(f"No frames could be read for event clip starting at frame {window.start_frame}")
+            temporary_path.replace(output_path)
             actual_end = max(window.start_frame, frame_idx - 1)
             duration_frames = actual_end - window.start_frame + 1
             manifest.append({

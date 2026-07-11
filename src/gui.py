@@ -41,6 +41,8 @@ from tkinter.scrolledtext import ScrolledText
 
 import cv2
 
+from gui_command import build_detector_command
+
 
 APP_TITLE = "Thermal Bat Blob Detector - Parameter GUI"
 DETECTOR_MODULE = "thermal_blob_detector"
@@ -79,17 +81,15 @@ def _resolve_counting_config_path(value: str, must_exist: bool = True) -> Path:
 
 NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
     # key, CLI flag, type, default, label, explanation
+    ("start_frame", "--start-frame", "int", "0", "Start frame", "First source frame included in analysis. Use 0 to start at the beginning."),
+    ("end_frame", "--end-frame", "int", "0", "End frame, 0 = video end", "Last source frame included in analysis. Example: 42000-46000 analyzes only that range."),
     ("max_frames", "--max-frames", "int", "0", "Max frames, 0 = full video", "Limits processing for quick tests. Use 300-1000 while tuning; 0 processes the full video."),
 
-    ("threshold", "--threshold", "float", "18.0", "Brightness threshold", "Minimum brightness above background. Increase to remove weak noise; decrease to catch faint bats."),
-    ("motion_threshold", "--motion-threshold", "float", "5.0", "Motion threshold", "Used only with motion gate. Increase to require stronger frame-to-frame movement."),
+    ("threshold", "--threshold", "float", "30.0", "Brightness threshold", "Minimum brightness above background. Increase to remove weak noise; decrease to catch faint bats."),
+    ("motion_threshold", "--motion-threshold", "float", "25.0", "Motion threshold", "Used only with motion gate. Increase to require stronger frame-to-frame movement."),
 
-    ("min_area", "--min-area", "int", "2", "Min blob area", "Smallest accepted blob in pixels. Increase to remove tiny hot pixels/noise."),
+    ("min_area", "--min-area", "int", "3", "Min blob area", "Smallest accepted blob in pixels. Increase to remove tiny hot pixels/noise."),
     ("max_area", "--max-area", "int", "1200", "Max blob area", "Largest accepted blob. Increase if close/bright bats are rejected; decrease to remove large artefacts."),
-    ("min_width", "--min-width", "int", "1", "Min blob width", "Minimum blob width in pixels. Usually keep at 1 for small thermal targets."),
-    ("min_height", "--min-height", "int", "1", "Min blob height", "Minimum blob height in pixels. Usually keep at 1 for small thermal targets."),
-    ("max_width", "--max-width", "int", "80", "Max blob width", "Rejects wide blobs. Increase if bats become streaks; decrease to remove broad artefacts."),
-    ("max_height", "--max-height", "int", "80", "Max blob height", "Rejects tall blobs. Increase if close bats are tall; decrease to remove large artefacts."),
     ("morph_open", "--morph-open", "int", "1", "Morph open", "Mask cleanup. Higher removes small noise but may delete very tiny/faint bats."),
     ("morph_dilate", "--morph-dilate", "int", "1", "Morph dilate", "Expands blobs slightly. Higher can connect broken pixels but may merge nearby objects."),
 
@@ -102,15 +102,17 @@ NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
     ("min_mean_speed", "--min-mean-speed", "float", "0.8", "Min mean speed", "Minimum average speed in px/frame. Increase to remove slow drift/hot pixels."),
     ("max_mean_speed", "--max-mean-speed", "float", "120.0", "Max mean speed", "Maximum average speed in px/frame. Decrease if tracks jump unrealistically between artefacts."),
     ("min_directionality", "--min-directionality", "float", "0.15", "Min directionality", "Straightness ratio: net movement / total path. Low allows chaotic bat flight; higher removes jittering noise."),
+    ("min_track_max_blob_area", "--min-track-max-blob-area", "int", "14", "Min track max blob area", "A valid track must contain at least one detection this large. Use 0 to disable; 14 preserves the smaller Drzewo.mp4 bat near frame 44390."),
+    ("min_track_mean_blob_area", "--min-track-mean-blob-area", "float", "8", "Min track mean blob area", "Minimum average blob area across the whole track. Use 0 to disable; try 8 to reject tracks assembled from tiny moving foliage/noise."),
     ("max_detections_per_frame", "--max-detections-per-frame", "int", "40", "Max detections/frame, 0 = off", "Rejects overloaded frames, e.g. camera calibration/noise bursts. Set 0 to disable."),
 
     ("background_frames", "--background-frames", "int", "200", "Background frames", "Number of sampled frames used to build the static background. More = stabler but slower start."),
     ("background_stride", "--background-stride", "int", "10", "Background stride", "Frame step between samples for background building. Higher samples a longer time range."),
     ("background_percentile", "--background-percentile", "float", "50.0", "Background percentile", "50 = median background. Lower/higher can help with unusual thermal backgrounds."),
-    ("background_recalibrate_interval", "--background-recalibrate-interval", "int", "0", "Recalibrate interval, 0 = off", "Rebuild the thermal background every N processed frames. Leave at 0 to preserve the static-background behaviour."),
+    ("background_recalibrate_interval", "--background-recalibrate-interval", "int", "1000", "Recalibrate interval, 0 = off", "Rebuild the thermal background every N processed frames. Leave at 0 to preserve the static-background behaviour."),
     ("background_recalibrate_frames", "--background-recalibrate-frames", "int", "200", "Recalibration frames", "Number of future sampled frames used for each periodic background update."),
     ("background_recalibrate_stride", "--background-recalibrate-stride", "int", "10", "Recalibration stride", "Frame step between samples in each periodic background window."),
-    ("background_recalibrate_blend", "--background-recalibrate-blend", "float", "1.0", "Recalibration blend", "Update strength: 1.0 replaces the background; smaller values such as 0.2 adapt gently to slow drift."),
+    ("background_recalibrate_blend", "--background-recalibrate-blend", "float", "0.5", "Recalibration blend", "Update strength: 1.0 replaces the background; smaller values such as 0.2 adapt gently to slow drift."),
 
     ("trail_length", "--trail-length", "int", "0", "Trail length, 0 = full track", "Length of drawn trail. 0 draws full history; small values draw only a moving tail."),
 
@@ -124,7 +126,7 @@ NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
 BOOLEAN_PARAMS: List[Tuple[str, str, str, bool, str]] = [
     # key, CLI flag, label, default, explanation
     ("show", "--show", "Show OpenCV preview window", True, "Opens live preview during processing. Useful while tuning parameters."),
-    ("motion_gate", "--motion-gate", "Use motion gate", False, "Requires both brightness above background and frame-to-frame movement. Can remove static artefacts but may lose faint bats."),
+    ("motion_gate", "--motion-gate", "Use motion gate", True, "Requires both brightness above background and frame-to-frame movement. Can remove static artefacts but may lose faint bats."),
     ("no_prediction", "--no-prediction", "Disable prediction", False, "Turns off simple velocity prediction in tracking. Usually keep unchecked."),
     ("draw_all_tracks", "--draw-all-tracks", "Draw all tracks, including invalid", False, "Diagnostic mode. Shows tracks before artefact filtering."),
     ("hide_inactive_tracks", "--hide-inactive-tracks", "Hide inactive tracks", False, "Draw only currently active tracks. Usually leave unchecked when reviewing full trajectories."),
@@ -869,7 +871,7 @@ class ThermalDetectorGUI(tk.Tk):
         self.bool_vars["recursive"] = tk.BooleanVar(value=False)
         self.bool_vars["continue_on_error"] = tk.BooleanVar(value=False)
         self.bool_vars["skip_existing"] = tk.BooleanVar(value=False)
-        self.bool_vars["event_clips"] = tk.BooleanVar(value=False)
+        self.bool_vars["event_clips"] = tk.BooleanVar(value=True)
 
         for var in list(self.path_vars.values()) + list(self.num_vars.values()):
             var.trace_add("write", lambda *_: self._refresh_command_preview())
@@ -963,13 +965,14 @@ class ThermalDetectorGUI(tk.Tk):
 
         tab_defs = [
             ("Detection", [
-                "max_frames", "threshold", "motion_threshold", "min_area", "max_area",
-                "min_width", "min_height", "max_width", "max_height", "morph_open", "morph_dilate",
+                "start_frame", "end_frame", "max_frames", "threshold", "motion_threshold", "min_area", "max_area",
+                "morph_open", "morph_dilate",
             ]),
             ("Tracking", ["max_link_distance", "max_gap_frames", "min_track_lifetime", "trail_length"]),
             ("Track filters", [
                 "min_track_displacement", "min_track_path_length", "min_mean_speed", "max_mean_speed",
-                "min_directionality", "max_detections_per_frame",
+                "min_directionality", "min_track_max_blob_area", "min_track_mean_blob_area",
+                "max_detections_per_frame",
             ]),
             ("Background", [
                 "background_frames", "background_stride", "background_percentile",
@@ -1300,193 +1303,15 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["run_summary_json"].set(str(output_dir / f"{stem}_run_summary.json"))
 
     def _build_command(self) -> List[str]:
-        script_or_module = self.path_vars["script"].get().strip()
-
-        if not script_or_module:
-            raise ValueError("Detector script/module is required.")
-
-        script_path = Path(script_or_module)
-        if script_path.exists():
-            cmd: List[str] = [sys.executable, "-u", str(script_path)]
-        elif script_or_module == DETECTOR_MODULE or "." in script_or_module:
-            cmd = [sys.executable, "-u", "-m", script_or_module]
-        else:
-            raise ValueError(f"Detector script/module not found:\n{script_or_module}")
-
-        input_mode = self.path_vars["input_mode"].get()
-        if input_mode == "single":
-            input_video = self.path_vars["input"].get().strip()
-            if not input_video or not Path(input_video).is_file():
-                raise ValueError(f"Input video not found:\n{input_video}")
-            cmd += ["--input", input_video]
-        elif input_mode == "multiple":
-            input_videos = [value.strip() for value in self.path_vars["inputs"].get().replace("\n", ";").split(";") if value.strip()]
-            if not input_videos:
-                raise ValueError("Select at least one input video.")
-            missing = [value for value in input_videos if not Path(value).is_file()]
-            if missing:
-                raise ValueError(f"Input video not found:\n{missing[0]}")
-            cmd += ["--inputs", *input_videos]
-        elif input_mode == "folder":
-            input_dir = self.path_vars["input_dir"].get().strip()
-            if not input_dir or not Path(input_dir).is_dir():
-                raise ValueError(f"Input folder not found:\n{input_dir}")
-            cmd += ["--input-dir", input_dir]
-        else:
-            raise ValueError("Choose one input mode: one file, multiple files, or folder.")
-
-        batch_output_dir = self.path_vars["batch_output_dir"].get().strip() or "outputs"
-        cmd += ["--batch-output-dir", batch_output_dir]
-        extensions = self.path_vars["video_extensions"].get().strip()
-        if extensions:
-            cmd += ["--video-extensions", extensions]
-        if self.bool_vars["recursive"].get():
-            cmd.append("--recursive")
-        if self.bool_vars["continue_on_error"].get():
-            cmd.append("--continue-on-error")
-        if self.bool_vars["skip_existing"].get():
-            cmd.append("--skip-existing")
-
-        output = self.path_vars["output"].get().strip()
-        csv_path = self.path_vars["csv"].get().strip()
-        summary_csv = self.path_vars["summary_csv"].get().strip()
-        crossings_csv = self.path_vars["crossings_csv"].get().strip()
-        aoi_events_csv = self.path_vars["aoi_events_csv"].get().strip()
-        activity_csv = self.path_vars["activity_csv"].get().strip()
-        run_summary_json = self.path_vars["run_summary_json"].get().strip()
-
-        if self.bool_vars["save_annotated_video"].get():
-            if output:
-                cmd += ["--output", output]
-        else:
-            cmd += ["--output", ""]
-        if csv_path:
-            cmd += ["--csv", csv_path]
-        if summary_csv:
-            cmd += ["--summary-csv", summary_csv]
-        if crossings_csv:
-            cmd += ["--crossings-csv", crossings_csv]
-        if aoi_events_csv:
-            cmd += ["--aoi-events-csv", aoi_events_csv]
-        if activity_csv:
-            cmd += ["--activity-csv", activity_csv]
-        if run_summary_json:
-            cmd += ["--run-summary-json", run_summary_json]
-        if self.bool_vars["event_clips"].get():
-            cmd.append("--event-clips")
-            clips_dir = self.path_vars["event_clips_dir"].get().strip()
-            if clips_dir:
-                cmd += ["--event-clips-dir", clips_dir]
-            clip_values = [
-                ("event_clip_pre_frames", "--event-clip-pre-frames"),
-                ("event_clip_post_frames", "--event-clip-post-frames"),
-                ("event_clip_merge_gap_frames", "--event-clip-merge-gap-frames"),
-            ]
-            for key, flag in clip_values:
-                value = self.path_vars[key].get().strip()
-                try:
-                    if int(value) < 0:
-                        raise ValueError
-                except ValueError as exc:
-                    raise ValueError(f"{key} must be a non-negative integer.") from exc
-                cmd += [flag, value]
-            trigger = self.path_vars["event_clip_trigger"].get().strip()
-            fourcc = self.path_vars["event_clip_fourcc"].get().strip()
-            if len(fourcc) != 4:
-                raise ValueError("Event clip FourCC must contain exactly four characters.")
-            cmd += ["--event-clip-trigger", trigger, "--event-clip-fourcc", fourcc]
-        self._validate_numeric_params()
-
-        meta = {key: (flag, typ) for key, flag, typ, _default, _label, _explanation in NUMERIC_PARAMS}
-        for key, var in self.num_vars.items():
-            value = var.get().strip()
-            if value == "":
-                continue
-            flag, _typ = meta[key]
-            cmd += [flag, value]
-
-        for key, flag, _label, _default, _explanation in BOOLEAN_PARAMS:
-            if self.bool_vars[key].get():
-                cmd.append(flag)
-
-        roi = self.path_vars["roi"].get().strip()
-        if roi:
-            self._validate_rect(roi, "ROI")
-            cmd += ["--roi", roi]
-
-        for zone in self._parse_exclude_zones():
-            self._validate_rect(zone, "Exclude zone")
-            cmd += ["--exclude-zone", zone]
-
-        counting_config = self.path_vars["counting_config"].get().strip()
-        if counting_config:
-            counting_config = str(_resolve_counting_config_path(counting_config))
-            self.path_vars["counting_config"].set(counting_config)
-            cmd += ["--counting-config", counting_config]
-
-        return cmd
-
-    def _validate_numeric_params(self) -> None:
-        meta = {key: (typ, label) for key, _flag, typ, _default, label, _explanation in NUMERIC_PARAMS}
-
-        for key, var in self.num_vars.items():
-            value = var.get().strip()
-            if value == "":
-                continue
-
-            typ, label = meta[key]
-            try:
-                if typ == "int":
-                    int(value)
-                elif typ == "float":
-                    float(value)
-                else:
-                    raise ValueError(f"Unsupported type: {typ}")
-            except ValueError as exc:
-                raise ValueError(f"Invalid value for '{label}': {value}") from exc
-
-    def _validate_rect(self, value: str, label: str) -> None:
-        parts = [p.strip() for p in value.split(",")]
-        if len(parts) != 4:
-            raise ValueError(f"{label} must use format x,y,w,h. Got: {value}")
-        try:
-            [int(p) for p in parts]
-        except ValueError as exc:
-            raise ValueError(f"{label} must contain integers only. Got: {value}") from exc
-
-    def _parse_exclude_zones(self) -> List[str]:
-        raw = self.path_vars["exclude_zones"].get().strip()
-        if not raw:
-            return []
-
-        normalized = raw.replace(";", "\n")
-        zones = [line.strip() for line in normalized.splitlines() if line.strip()]
-        return zones
-
-    def _parse_multiline_values(self, key: str) -> List[str]:
-        raw = self.path_vars[key].get().strip()
-        if not raw:
-            return []
-        normalized = raw.replace(";", "\n")
-        return [line.strip() for line in normalized.splitlines() if line.strip()]
-
-    def _validate_count_line(self, value: str) -> None:
-        parts = [p.strip() for p in value.split(",")]
-        if len(parts) not in (6, 8):
-            raise ValueError(f"Counting line must use id,name,x1,y1,x2,y2[,positive_label,negative_label]. Got: {value}")
-        try:
-            [float(p) for p in parts[2:6]]
-        except ValueError as exc:
-            raise ValueError(f"Counting line coordinates must be numeric. Got: {value}") from exc
-
-    def _validate_count_aoi(self, value: str) -> None:
-        parts = [p.strip() for p in value.split(",")]
-        if len(parts) != 6:
-            raise ValueError(f"Counting AOI must use id,name,x,y,w,h. Got: {value}")
-        try:
-            [float(p) for p in parts[2:6]]
-        except ValueError as exc:
-            raise ValueError(f"Counting AOI coordinates must be numeric. Got: {value}") from exc
+        return build_detector_command(
+            paths={key: variable.get() for key, variable in self.path_vars.items()},
+            numeric={key: variable.get() for key, variable in self.num_vars.items()},
+            boolean={key: variable.get() for key, variable in self.bool_vars.items()},
+            numeric_params=NUMERIC_PARAMS,
+            boolean_params=BOOLEAN_PARAMS,
+            detector_module=DETECTOR_MODULE,
+            resolve_counting_config=_resolve_counting_config_path,
+        )
 
     def _refresh_command_preview(self) -> None:
         if not hasattr(self, "command_text"):
@@ -1632,6 +1457,7 @@ class ThermalDetectorGUI(tk.Tk):
     def _load_preset(self) -> None:
         path = filedialog.askopenfilename(
             title="Load parameter preset",
+            initialdir=str((Path(__file__).resolve().parent.parent / "presets").resolve()),
             filetypes=[("JSON", "*.json"), ("All files", "*.*")],
         )
         if not path:

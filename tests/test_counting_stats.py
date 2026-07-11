@@ -141,6 +141,20 @@ class CountingStatsTest(unittest.TestCase):
         live_counter.update([track], frame_idx=1)
         self.assertEqual(live_counter.aoi_active_tracks["box"], set())
 
+    def test_live_counting_reuses_track_validity_within_same_lifetime(self):
+        cfg = CountingConfig(aois=[CountingAoi("box", "Box", (10, 10, 20, 20))])
+        validation_calls = []
+        live_counter = LiveCounting(
+            cfg, fps=10.0, crossings_csv_path=None, aoi_events_csv_path=None,
+            is_countable_track=lambda track: validation_calls.append(track.track_id) or True,
+        )
+        track = LiveTrack(track_id=1)
+        track.add_detection(BlobDetection(0, (15.0, 15.0), (14, 14, 2, 2), 4, 20.0, 30.0, 0.8))
+
+        live_counter.update([track], frame_idx=0)
+
+        self.assertEqual(validation_calls, [1])
+
     def test_analyze_tracks_counts_valid_tracks_only_by_default(self):
         cfg = CountingConfig(lines=[CountingLine("mid", "Middle", (0, 0), (0, 10))])
         valid_track = make_track(1, [(-5, 5), (5, 5)])
