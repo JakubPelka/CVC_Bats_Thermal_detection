@@ -115,6 +115,23 @@ filters because small thermal targets may legitimately be narrow or streaked.
 The former width/height CLI options remain accepted only for compatibility with
 old scripts and no longer affect detection.
 
+The two track-area filters should normally use different thresholds. The mean
+area checks whether the object remains sufficiently large through the track,
+while the maximum area requires at least one stronger detection. Recommended
+starting profiles are:
+
+| Target size | Mean track blob area | Max track blob area | Trade-off |
+|---|---:|---:|---|
+| Current `Drzewo.mp4` bats | 8 | 14 | Rejects the moving-branch tracks while retaining the bat at frame 44390 |
+| Smaller or more distant bats | 6 | 10 | More sensitive, with a moderate increase in tiny-noise tracks |
+| Very small experimental targets | 4 | 8 | High sensitivity; expect more foliage and compression false positives |
+
+As a rule, lower the mean threshold first and keep the maximum threshold about
+1.5-2 times higher. Change one step at a time and review event clips. If an
+object itself contains fewer than the detector-level `--min-area 3` pixels,
+that earlier threshold must also be lowered, usually to `2`; the track-area
+filters cannot restore detections rejected before tracking.
+
 To analyze only an inclusive source-frame range, use for example:
 
 ```bash
