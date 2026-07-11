@@ -160,6 +160,9 @@ def export_event_clips(
             manifest.append({
                 "clip_id": clip_idx, "filename": filename,
                 "start_frame": window.start_frame, "end_frame": actual_end,
+                "source_start_frame": window.start_frame,
+                "source_end_frame": actual_end,
+                "source_frame_offset": window.start_frame,
                 "duration_frames": duration_frames,
                 "start_time_s": window.start_frame / fps, "end_time_s": actual_end / fps,
                 "duration_s": duration_frames / fps, "source_types": sorted(window.sources),

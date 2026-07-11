@@ -143,6 +143,11 @@ thermal-blob-detector \
 
 `--end-frame 0` means the end of the video. Frame numbers stored in tracks,
 CSV files and event-clip manifests remain absolute source-video frame numbers.
+An exported MP4 necessarily has its own local frame numbering beginning at 1,
+but the event-clip HUD shows the current absolute `Source frame`, the absolute
+source window and the local clip-frame position. Manifests expose both the
+existing `start_frame`/`end_frame` fields and explicit
+`source_start_frame`/`source_end_frame` aliases.
 
 ### Event clips
 

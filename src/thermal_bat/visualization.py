@@ -212,9 +212,18 @@ def draw_event_clip_overlay(frame: np.ndarray, frame_idx: int, window: ClipWindo
             cv2.circle(out, tuple_int(current.centroid), 4, color, -1, cv2.LINE_AA)
             cv2.putText(out, str(track_id), tuple_int(current.centroid), cv2.FONT_HERSHEY_SIMPLEX, .42, color, 1, cv2.LINE_AA)
     draw_counting_geometry(out, counting_cfg)
-    hud = f"Clip {clip_idx} / {clip_count} | Frame {window.start_frame}-{window.end_frame} | tracks: {len(window.track_ids)} | source: {','.join(sorted(window.sources))}"
-    cv2.putText(out, hud, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, .48, (0, 0, 0), 3, cv2.LINE_AA)
-    cv2.putText(out, hud, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, .48, (255, 255, 255), 1, cv2.LINE_AA)
+    local_frame = frame_idx - window.start_frame + 1
+    clip_frames = window.end_frame - window.start_frame + 1
+    hud_lines = [
+        f"Clip {clip_idx}/{clip_count} | Source frame {frame_idx} "
+        f"| source window {window.start_frame}-{window.end_frame} "
+        f"| clip frame {local_frame}/{clip_frames}",
+        f"Tracks: {len(window.track_ids)} | trigger: {','.join(sorted(window.sources))}",
+    ]
+    for line_index, hud in enumerate(hud_lines):
+        position = (8, 20 + 18 * line_index)
+        cv2.putText(out, hud, position, cv2.FONT_HERSHEY_SIMPLEX, .43, (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(out, hud, position, cv2.FONT_HERSHEY_SIMPLEX, .43, (255, 255, 255), 1, cv2.LINE_AA)
     return out
 
 
