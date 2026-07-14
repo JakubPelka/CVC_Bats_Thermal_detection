@@ -114,6 +114,33 @@ class BackgroundAndProgressTests(unittest.TestCase):
         ])
         self.assertTrue(is_valid_flying_track(track, cfg))
 
+    def test_closed_invalid_track_is_discarded(self):
+        cfg = self._area_filter_config()
+        cfg.max_gap_frames = 0
+        detector = ThermalBlobDetector(cfg)
+        detector.tracks[1] = Track(track_id=1, detections=[
+            BlobDetection(0, (0.0, 0.0), (0, 0, 1, 1), 1, 1.0, 1.0, 0.1),
+        ])
+
+        detector.update_tracks([])
+
+        self.assertNotIn(1, detector.tracks)
+        self.assertEqual(detector.discarded_invalid_tracks, 1)
+
+    def test_diagnostic_mode_retains_closed_invalid_track(self):
+        cfg = self._area_filter_config()
+        cfg.max_gap_frames = 0
+        cfg.retain_invalid_tracks = True
+        detector = ThermalBlobDetector(cfg)
+        detector.tracks[1] = Track(track_id=1, detections=[
+            BlobDetection(0, (0.0, 0.0), (0, 0, 1, 1), 1, 1.0, 1.0, 0.1),
+        ])
+
+        detector.update_tracks([])
+
+        self.assertIn(1, detector.tracks)
+        self.assertEqual(detector.discarded_invalid_tracks, 0)
+
     def test_counting_geometry_live_counter_is_optional_for_event_clips(self):
         parameter = inspect.signature(draw_counting_geometry).parameters["live_counter"]
         self.assertIsNone(parameter.default)

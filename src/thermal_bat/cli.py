@@ -117,6 +117,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--show-track-id", action=argparse.BooleanOptionalAction, default=True,
         help="Show the track ID beside current annotations",
     )
+    parser.add_argument(
+        "--verification-mode", action=argparse.BooleanOptionalAction, default=False,
+        help="Render event clips as side-by-side views of the same frame",
+    )
+    parser.add_argument(
+        "--verification-left-style", choices=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal"),
+        default="bbox-trail", help="Annotation style for the left verification view",
+    )
+    parser.add_argument(
+        "--verification-right-style", choices=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal"),
+        default="dot", help="Annotation style for the right verification view",
+    )
     parser.add_argument("--hide-roi-rectangle", action="store_true", help="Do not draw ROI rectangle")
     parser.add_argument("--hide-exclude-zones", action="store_true", help="Do not draw exclusion-zone rectangles")
 

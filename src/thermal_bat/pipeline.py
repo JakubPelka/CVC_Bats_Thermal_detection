@@ -23,7 +23,7 @@ from .exports import write_track_points_csv
 from .live_counting import LiveCounting
 from .progress import build_progress_text
 from .validation import is_valid_flying_track
-from .visualization import OverlayRenderer, draw_event_clip_overlay
+from .visualization import OverlayRenderer, draw_event_clip_overlay, draw_verification_event_clip_overlay
 
 
 def resolve_frame_range(frame_count: int, start_frame: int, end_frame: int,
@@ -137,6 +137,13 @@ def process_single_video(
         bbox_padding=max(0, args.bbox_padding),
         current_point_radius=max(1, args.current_point_radius),
         show_track_id=args.show_track_id,
+        verification_mode=args.verification_mode,
+        verification_left_style=args.verification_left_style,
+        verification_right_style=args.verification_right_style,
+        retain_invalid_tracks=(
+            args.draw_all_tracks or args.count_all_tracks
+            or (args.event_clips and args.event_clip_trigger == "all_tracks")
+        ),
         draw_roi=not args.hide_roi_rectangle,
         draw_exclude_zones=not args.hide_exclude_zones,
     )
@@ -309,7 +316,10 @@ def process_single_video(
         input_video=str(input_path),
         frame_count_processed=processed_frames,
         parameter_preset=args.parameter_preset,
-        notes=f"Skipped noisy detection frames: {detector.skipped_detection_frames}",
+        notes=(
+            f"Skipped noisy detection frames: {detector.skipped_detection_frames}; "
+            f"discarded finalized invalid tracks: {detector.discarded_invalid_tracks}"
+        ),
     )
 
     if summary_csv_path:
@@ -357,10 +367,15 @@ def process_single_video(
             print("No event clip windows found; no clips were written.")
         else:
             manifest = export_event_clips(
-                input_path, event_clips_dir, windows, fps, width, height,
+                input_path, event_clips_dir, windows, fps,
+                width * (2 if cfg.verification_mode else 1), height,
                 args.event_clip_fourcc,
-                lambda frame, frame_idx, window, clip_idx, clip_count: draw_event_clip_overlay(
-                    frame, frame_idx, window, detector.tracks, counting_cfg, cfg, clip_idx, clip_count
+                lambda frame, frame_idx, window, clip_idx, clip_count: (
+                    draw_verification_event_clip_overlay(
+                        frame, frame_idx, window, detector.tracks, counting_cfg, cfg, clip_idx, clip_count
+                    ) if cfg.verification_mode else draw_event_clip_overlay(
+                        frame, frame_idx, window, detector.tracks, counting_cfg, cfg, clip_idx, clip_count
+                    )
                 ),
                 {track.track_id for track in detector.valid_tracks()},
             )
@@ -377,6 +392,7 @@ def process_single_video(
     print(f"Frames processed: {processed_frames}")
     print(f"Skipped noisy detection frames: {detector.skipped_detection_frames}")
     print(f"All tracks: {len(all_tracks)}")
+    print(f"Discarded finalized invalid tracks: {detector.discarded_invalid_tracks}")
     print(f"Confirmed tracks >= {cfg.min_track_lifetime} detections: {len(confirmed)}")
     print(f"Valid flying tracks: {len(valid)}")
     print(f"Line crossings: {len(counting_results.crossings)}")

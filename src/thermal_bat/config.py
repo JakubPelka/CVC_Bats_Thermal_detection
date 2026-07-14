@@ -45,5 +45,9 @@ class ThermalBlobConfig:
     bbox_padding: int = 4
     current_point_radius: int = 3
     show_track_id: bool = True
+    verification_mode: bool = False
+    verification_left_style: str = "bbox-trail"
+    verification_right_style: str = "dot"
+    retain_invalid_tracks: bool = False
     draw_roi: bool = True
     draw_exclude_zones: bool = True

@@ -47,9 +47,30 @@ class Track:
     detections: List[BlobDetection] = field(default_factory=list)
     missed_frames: int = 0
     active: bool = True
+    path_length: float = field(default=0.0, init=False)
+    max_step_speed: float = field(default=0.0, init=False)
+    blob_area_sum: int = field(default=0, init=False)
+    max_blob_area: int = field(default=0, init=False)
+
+    def __post_init__(self) -> None:
+        existing = list(self.detections)
+        existing_missed_frames = self.missed_frames
+        self.detections = []
+        for detection in existing:
+            self.add_detection(detection)
+        self.missed_frames = existing_missed_frames
 
     def add_detection(self, detection: BlobDetection) -> None:
+        if self.detections:
+            previous = self.detections[-1]
+            frame_delta = max(1, detection.frame_idx - previous.frame_idx)
+            step = ((detection.centroid[0] - previous.centroid[0]) ** 2
+                    + (detection.centroid[1] - previous.centroid[1]) ** 2) ** 0.5
+            self.path_length += step
+            self.max_step_speed = max(self.max_step_speed, step / frame_delta)
         self.detections.append(detection)
+        self.blob_area_sum += detection.area
+        self.max_blob_area = max(self.max_blob_area, detection.area)
         self.missed_frames = 0
 
     @property

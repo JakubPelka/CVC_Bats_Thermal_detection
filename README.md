@@ -184,8 +184,10 @@ clip filenames can collide.
 ### Annotation styles
 
 The live preview, full annotated video, and event clips use the same annotation
-style. `bbox-trail` is the default and recommended QA view: it keeps a thin
-trajectory and draws a padded box enclosing the trajectory accumulated so far.
+style. `bbox-trail` is the default and recommended QA view: it draws a colored
+box enclosing the trajectory accumulated so far, plus a bright padded box
+around the object detected in the current frame. Its trail can be disabled to
+avoid drawing over the object.
 
 Fast visual QA:
 
@@ -210,6 +212,24 @@ Use `--no-show-track-id` to hide labels. Box, trail, and point dimensions can
 also be adjusted with `--bbox-thickness`, `--track-line-thickness`, and
 `--current-point-radius`. Set `--track-line-thickness 0` to disable the trail
 entirely, including in `thin-trail` and `bbox-trail` modes.
+
+#### Verification mode
+
+Verification mode renders each event-clip frame twice, side by side, so two
+annotation styles can be reviewed in one pass. For example, compare the full
+track box on the left with a point-only view on the right:
+
+```bash
+--event-clips \
+--verification-mode \
+--verification-left-style bbox-trail \
+--verification-right-style dot \
+--track-line-thickness 0
+```
+
+The two panels contain the same source frame. Verification mode affects event
+clips only; live preview and the full annotated video keep using
+`--annotation-style`.
 
 ### Batch processing
 

@@ -138,6 +138,7 @@ BOOLEAN_PARAMS: List[Tuple[str, str, str, bool, str]] = [
     ("hide_exclude_zones", "--hide-exclude-zones", "Hide exclude-zone rectangles", False, "Hides excluded-area rectangles on the preview/output video."),
     ("count_all_tracks", "--count-all-tracks", "Count all tracks for diagnostics", False, "Counts invalid/static/noisy tracks too. Leave unchecked for final valid-track counting."),
     ("show_track_id", "--show-track-id", "Show track ID", True, "Labels the current annotation with its track ID."),
+    ("verification_mode", "--verification-mode", "Verification mode", False, "Creates side-by-side event clips with independently selected annotation styles."),
 ]
 
 
@@ -867,6 +868,8 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["event_clip_trigger"] = tk.StringVar(value="valid_tracks")
         self.path_vars["event_clip_fourcc"] = tk.StringVar(value="mp4v")
         self.path_vars["annotation_style"] = tk.StringVar(value="bbox-trail")
+        self.path_vars["verification_left_style"] = tk.StringVar(value="bbox-trail")
+        self.path_vars["verification_right_style"] = tk.StringVar(value="dot")
 
         for key, _flag, _typ, default, _label, _explanation in NUMERIC_PARAMS:
             self.num_vars[key] = tk.StringVar(value=default)
@@ -1052,17 +1055,40 @@ class ThermalDetectorGUI(tk.Tk):
         ttk.Label(
             tab_events,
             text=(
-                "trail — full trajectory line with the current point.\n"
-                "thin-trail — thin trajectory line without a large point.\n"
-                "bbox — only a box enclosing the trajectory so far.\n"
-                "bbox-trail — enclosing box plus a thin line; recommended for visual QA.\n"
-                "dot — only a point at the object's current position.\n"
-                "minimal — a small point and optional track number.\n"
-                "Set Track line thickness to 0 to hide the line completely."
+                "Choose how tracks are drawn: trail = full line; thin-trail = thin line; "
+                "bbox = track box; bbox-trail = track box, current-object box and optional line; "
+                "dot = current point; minimal = small point and optional ID. Set line thickness to 0 to hide the line."
             ),
             wraplength=520,
             justify=tk.LEFT,
         ).grid(row=15, column=2, sticky="nw", padx=8, pady=4)
+
+        ttk.Label(tab_events, text="Verification mode").grid(row=16, column=0, sticky="nw", padx=4, pady=4)
+        ttk.Checkbutton(
+            tab_events, text="Side-by-side event clip", variable=self.bool_vars["verification_mode"],
+        ).grid(row=16, column=1, sticky="nw", padx=4, pady=4)
+        ttk.Label(
+            tab_events,
+            text="Show the same event-clip frame twice, with an independent annotation style on each side.",
+            wraplength=520, justify=tk.LEFT,
+        ).grid(row=16, column=2, sticky="nw", padx=8, pady=4)
+
+        verification_styles = (
+            ("verification_left_style", "Left style", "Annotation shown on the left side."),
+            ("verification_right_style", "Right style", "Annotation shown on the right side."),
+        )
+        for row, (key, label, explanation) in enumerate(verification_styles, start=17):
+            ttk.Label(tab_events, text=label).grid(row=row, column=0, sticky="nw", padx=4, pady=4)
+            ttk.Combobox(
+                tab_events, textvariable=self.path_vars[key], state="readonly", width=16,
+                values=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal"),
+            ).grid(row=row, column=1, sticky="nw", padx=4, pady=4)
+            ttk.Label(tab_events, text=explanation, wraplength=520, justify=tk.LEFT).grid(
+                row=row, column=2, sticky="nw", padx=8, pady=4
+            )
+        tab_events.columnconfigure(0, minsize=150)
+        tab_events.columnconfigure(1, minsize=180)
+        tab_events.columnconfigure(2, weight=1, minsize=520)
 
         tab_flags_scroll = ScrollableFrame(notebook, padding=0)
         notebook.add(tab_flags_scroll, text="Flags")
@@ -1175,7 +1201,7 @@ class ThermalDetectorGUI(tk.Tk):
 
         row = 1
         for key, _flag, label, _default, explanation in BOOLEAN_PARAMS:
-            if key in {"show", "show_track_id"}:
+            if key in {"show", "show_track_id", "verification_mode"}:
                 continue
             cb = ttk.Checkbutton(parent, text=label, variable=self.bool_vars[key])
             cb.grid(row=row, column=0, sticky="nw", padx=4, pady=4)

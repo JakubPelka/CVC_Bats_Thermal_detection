@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from functools import lru_cache
 from typing import Any, Dict, Optional, Sequence, Tuple
 
@@ -143,6 +144,19 @@ def _draw_track_annotation(out: np.ndarray, track_id: int, detections: Sequence[
         y2 = min(out.shape[0] - 1, max(item.bbox[1] + item.bbox[3] for item in detections) + padding)
         cv2.rectangle(out, (x1, y1), (x2, y2), color, max(1, cfg.bbox_thickness))
         label_position = (x1, max(10, y1 - 3))
+    if style == "bbox-trail" and current is not None:
+        # A separate bright box identifies the object in this exact frame. Its
+        # padded border stays outside the thermal blob instead of covering it.
+        x, y, w, h = current.bbox
+        padding = max(0, cfg.bbox_padding)
+        current_x1 = max(0, x - padding)
+        current_y1 = max(0, y - padding)
+        current_x2 = min(out.shape[1] - 1, x + w + padding)
+        current_y2 = min(out.shape[0] - 1, y + h + padding)
+        cv2.rectangle(
+            out, (current_x1, current_y1), (current_x2, current_y2),
+            (255, 255, 255), max(1, cfg.bbox_thickness),
+        )
     if current is None:
         if cfg.show_track_id and label_position is not None:
             cv2.putText(out, str(track_id), label_position, cv2.FONT_HERSHEY_SIMPLEX, .42, color, 1, cv2.LINE_AA)
@@ -273,6 +287,29 @@ def draw_event_clip_overlay(frame: np.ndarray, frame_idx: int, window: ClipWindo
         cv2.putText(out, hud, position, cv2.FONT_HERSHEY_SIMPLEX, .43, (0, 0, 0), 3, cv2.LINE_AA)
         cv2.putText(out, hud, position, cv2.FONT_HERSHEY_SIMPLEX, .43, (255, 255, 255), 1, cv2.LINE_AA)
     return out
+
+
+def draw_verification_event_clip_overlay(
+    frame: np.ndarray, frame_idx: int, window: ClipWindow, tracks: Dict[int, Track],
+    counting_cfg: CountingConfig, cfg: ThermalBlobConfig, clip_idx: int, clip_count: int,
+) -> np.ndarray:
+    """Render two independently annotated copies of one event-clip frame."""
+    left = draw_event_clip_overlay(
+        frame, frame_idx, window, tracks, counting_cfg,
+        replace(cfg, annotation_style=cfg.verification_left_style), clip_idx, clip_count,
+    )
+    right = draw_event_clip_overlay(
+        frame, frame_idx, window, tracks, counting_cfg,
+        replace(cfg, annotation_style=cfg.verification_right_style), clip_idx, clip_count,
+    )
+    for pane, label in (
+        (left, f"LEFT: {cfg.verification_left_style}"),
+        (right, f"RIGHT: {cfg.verification_right_style}"),
+    ):
+        position = (8, max(18, pane.shape[0] - 12))
+        cv2.putText(pane, label, position, cv2.FONT_HERSHEY_SIMPLEX, .48, (0, 0, 0), 3, cv2.LINE_AA)
+        cv2.putText(pane, label, position, cv2.FONT_HERSHEY_SIMPLEX, .48, (255, 255, 255), 1, cv2.LINE_AA)
+    return np.hstack((left, right))
 
 
 def _polygon_label_point(points: Sequence[Point]) -> Point:

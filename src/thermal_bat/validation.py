@@ -11,24 +11,16 @@ def euclidean_distance(a: Point, b: Point) -> float:
 
 
 def track_metrics(track: Track) -> TrackMetrics:
-    points = track.points()
-    if len(points) < 2:
+    if len(track.detections) < 2:
         return TrackMetrics()
-    path_length = 0.0
-    max_step_speed = 0.0
-    for index in range(1, len(points)):
-        step_distance = euclidean_distance(points[index - 1], points[index])
-        frame_delta = max(1, track.detections[index].frame_idx - track.detections[index - 1].frame_idx)
-        path_length += step_distance
-        max_step_speed = max(max_step_speed, step_distance / frame_delta)
-    net_displacement = euclidean_distance(points[0], points[-1])
+    net_displacement = euclidean_distance(track.detections[0].centroid, track.detections[-1].centroid)
     frame_span = max(1, track.detections[-1].frame_idx - track.detections[0].frame_idx)
     return TrackMetrics(
-        path_length=path_length,
+        path_length=track.path_length,
         net_displacement=net_displacement,
-        mean_speed=path_length / frame_span,
-        max_step_speed=max_step_speed,
-        directionality=net_displacement / path_length if path_length > 0 else 0.0,
+        mean_speed=track.path_length / frame_span,
+        max_step_speed=track.max_step_speed,
+        directionality=net_displacement / track.path_length if track.path_length > 0 else 0.0,
         frame_span=frame_span,
     )
 
@@ -36,10 +28,10 @@ def track_metrics(track: Track) -> TrackMetrics:
 def is_valid_flying_track(track: Track, cfg: ThermalBlobConfig) -> bool:
     if track.lifetime < cfg.min_track_lifetime:
         return False
-    if cfg.min_track_max_blob_area > 0 and max((item.area for item in track.detections), default=0) < cfg.min_track_max_blob_area:
+    if cfg.min_track_max_blob_area > 0 and track.max_blob_area < cfg.min_track_max_blob_area:
         return False
     if cfg.min_track_mean_blob_area > 0:
-        mean_blob_area = sum(item.area for item in track.detections) / max(1, track.lifetime)
+        mean_blob_area = track.blob_area_sum / max(1, track.lifetime)
         if mean_blob_area < cfg.min_track_mean_blob_area:
             return False
     metrics = track_metrics(track)

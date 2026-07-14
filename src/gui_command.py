@@ -55,6 +55,10 @@ def build_detector_command(
         command += ["--video-extensions", paths["video_extensions"].strip()]
     annotation_style = paths.get("annotation_style", "bbox-trail").strip() or "bbox-trail"
     command += ["--annotation-style", annotation_style]
+    command += [
+        "--verification-left-style", paths.get("verification_left_style", "bbox-trail").strip() or "bbox-trail",
+        "--verification-right-style", paths.get("verification_right_style", "dot").strip() or "dot",
+    ]
     for key, flag in (("recursive", "--recursive"), ("continue_on_error", "--continue-on-error"), ("skip_existing", "--skip-existing")):
         if boolean.get(key):
             command.append(flag)

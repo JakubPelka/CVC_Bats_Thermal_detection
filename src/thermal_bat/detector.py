@@ -34,6 +34,7 @@ class ThermalBlobDetector:
         self.tracks: Dict[int, Track] = {}
         self.next_track_id = 1
         self.skipped_detection_frames = 0
+        self.discarded_invalid_tracks = 0
         self._track_validity_cache: Dict[int, Tuple[int, bool]] = {}
         self._valid_track_ids: set[int] = set()
 
@@ -140,7 +141,21 @@ class ThermalBlobDetector:
         updated = [self.tracks[track_id] for track_id in updated_ids]
         for track in updated:
             self._refresh_track_validity(track)
+        if not self.config.retain_invalid_tracks:
+            self._discard_closed_invalid_tracks()
         return updated
+
+    def _discard_closed_invalid_tracks(self) -> None:
+        """Release finalized invalid tracks and their detection histories."""
+        discarded_ids = [
+            track_id for track_id, track in self.tracks.items()
+            if not track.active and not self.is_valid_track_cached(track)
+        ]
+        for track_id in discarded_ids:
+            del self.tracks[track_id]
+            self._track_validity_cache.pop(track_id, None)
+            self._valid_track_ids.discard(track_id)
+        self.discarded_invalid_tracks += len(discarded_ids)
 
     def _refresh_track_validity(self, track: Track) -> bool:
         valid = is_valid_flying_track(track, self.config)
