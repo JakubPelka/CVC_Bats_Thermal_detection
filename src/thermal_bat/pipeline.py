@@ -131,6 +131,12 @@ def process_single_video(
         exclude_zones=parse_rect_list(args.exclude_zone, "exclude zone"),
         draw_inactive_tracks=not args.hide_inactive_tracks,
         trail_length=args.trail_length,
+        annotation_style=args.annotation_style,
+        track_line_thickness=max(0, args.track_line_thickness),
+        bbox_thickness=max(1, args.bbox_thickness),
+        bbox_padding=max(0, args.bbox_padding),
+        current_point_radius=max(1, args.current_point_radius),
+        show_track_id=args.show_track_id,
         draw_roi=not args.hide_roi_rectangle,
         draw_exclude_zones=not args.hide_exclude_zones,
     )
@@ -403,7 +409,13 @@ def process_batch(args: argparse.Namespace) -> List[dict]:
     input_paths = collect_input_videos(args)
     if not input_paths:
         raise ValueError("No matching input videos found")
-    batch_output_dir = Path(args.batch_output_dir)
+    if args.batch_output_dir:
+        batch_output_dir = Path(args.batch_output_dir)
+    elif args.input_dir:
+        batch_output_dir = Path(args.input_dir).resolve() / "outputs"
+    else:
+        batch_output_dir = input_paths[0].resolve().parent / "outputs"
+    print(f"Batch output folder: {batch_output_dir}")
     print(f"Found {len(input_paths)} input videos.")
     if args.event_clips_dir and len(input_paths) > 1:
         print("WARNING: --event-clips-dir is shared in batch mode; clip filenames may collide between videos.")

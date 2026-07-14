@@ -18,7 +18,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     input_group.add_argument("--input-dir", default="", help="Folder containing input videos")
     parser.add_argument("--recursive", action="store_true", help="Recursively scan --input-dir")
     parser.add_argument("--video-extensions", default=".mp4,.avi,.mov,.mkv", help="Comma-separated extensions for folder scans")
-    parser.add_argument("--batch-output-dir", default="outputs", help="Root output directory for batch results")
+    parser.add_argument(
+        "--batch-output-dir", default="",
+        help="Root output directory for batch results; empty creates an outputs folder beside the input recordings",
+    )
     parser.add_argument("--continue-on-error", action="store_true", help="Continue processing after a video fails")
     parser.add_argument("--skip-existing", action="store_true", help="Skip videos whose derived run summary already exists")
     parser.add_argument("--output", default="thermal_blob_valid_tracks.mp4", help="Output debug video path")
@@ -102,6 +105,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--hide-inactive-tracks", action="store_true", help="Do not draw inactive tracks")
     parser.add_argument("--trail-length", type=int, default=0, help="Recent points drawn per track. 0 = full track history")
+    parser.add_argument(
+        "--annotation-style", choices=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal"),
+        default="bbox-trail", help="Track annotation style used in preview, output video, and event clips",
+    )
+    parser.add_argument("--track-line-thickness", type=int, default=1, help="Track trail line thickness; 0 disables the trail")
+    parser.add_argument("--bbox-thickness", type=int, default=1, help="Current detection bounding-box thickness")
+    parser.add_argument("--bbox-padding", type=int, default=4, help="Padding around current detection bounding boxes")
+    parser.add_argument("--current-point-radius", type=int, default=3, help="Current centroid marker radius")
+    parser.add_argument(
+        "--show-track-id", action=argparse.BooleanOptionalAction, default=True,
+        help="Show the track ID beside current annotations",
+    )
     parser.add_argument("--hide-roi-rectangle", action="store_true", help="Do not draw ROI rectangle")
     parser.add_argument("--hide-exclude-zones", action="store_true", help="Do not draw exclusion-zone rectangles")
 

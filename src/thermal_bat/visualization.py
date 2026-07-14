@@ -12,7 +12,7 @@ from counting_geometry import line_points
 from counting_models import CountingConfig
 from event_clips import ClipWindow
 from .config import ThermalBlobConfig
-from .models import Point, Track
+from .models import BlobDetection, Point, Track
 from .validation import is_valid_flying_track
 
 
@@ -44,16 +44,22 @@ class OverlayRenderer:
         active_tracks = []
         cache_changed = False
         for track in detector.drawable_tracks():
-            if track.active or not cfg.draw_inactive_tracks:
+            if track.active or not cfg.draw_inactive_tracks or cfg.annotation_style in {"bbox", "bbox-trail"}:
                 active_tracks.append(track)
                 continue
             if track.track_id in self._cached_track_ids:
                 continue
-            self._draw_track(self._trail_layer, track, cfg, thickness=1)
+            if not _style_has_trail(cfg.annotation_style):
+                continue
+            thickness = _trail_thickness(cfg)
+            if thickness <= 0:
+                self._cached_track_ids.add(track.track_id)
+                continue
+            self._draw_track(self._trail_layer, track, cfg, thickness=thickness)
             points = track.recent_points(cfg.trail_length)
             if len(points) >= 2:
                 polyline = np.asarray([tuple_int(point) for point in points], dtype=np.int32).reshape((-1, 1, 2))
-                cv2.polylines(self._trail_mask, [polyline], False, 255, 1, cv2.LINE_AA)
+                cv2.polylines(self._trail_mask, [polyline], False, 255, thickness, cv2.LINE_AA)
                 cache_changed = True
             self._cached_track_ids.add(track.track_id)
 
@@ -66,7 +72,9 @@ class OverlayRenderer:
                 + background * (1.0 - self._cached_alpha)
             ).astype(np.uint8)
         for track in active_tracks:
-            self._draw_track(out, track, cfg, thickness=1)
+            current = track.last_detection if track.last_frame_idx == frame_idx else None
+            detections = track.detections if cfg.trail_length <= 0 else track.detections[-cfg.trail_length:]
+            _draw_track_annotation(out, track.track_id, detections, current, cfg)
         _draw_common_overlays(out, cfg, counting_cfg, live_counter, frame_idx, progress_text)
         return out
 
@@ -107,6 +115,53 @@ def color_for_track(track_id: int) -> Tuple[int, int, int]:
     return int(color[0]), int(color[1]), int(color[2])
 
 
+def _style_has_trail(style: str) -> bool:
+    return style in {"trail", "thin-trail", "bbox-trail"}
+
+
+def _trail_thickness(cfg: ThermalBlobConfig) -> int:
+    if cfg.track_line_thickness <= 0:
+        return 0
+    return 1 if cfg.annotation_style in {"thin-trail", "bbox-trail"} else cfg.track_line_thickness
+
+
+def _draw_track_annotation(out: np.ndarray, track_id: int, detections: Sequence[BlobDetection],
+                           current: Optional[BlobDetection], cfg: ThermalBlobConfig) -> None:
+    style = cfg.annotation_style
+    color = color_for_track(track_id)
+    points = [item.centroid for item in detections]
+    trail_thickness = _trail_thickness(cfg)
+    if _style_has_trail(style) and trail_thickness > 0 and len(points) >= 2:
+        polyline = np.asarray([tuple_int(point) for point in points], dtype=np.int32).reshape((-1, 1, 2))
+        cv2.polylines(out, [polyline], False, color, trail_thickness, cv2.LINE_AA)
+    label_position: Optional[Tuple[int, int]] = None
+    if style in {"bbox", "bbox-trail"} and detections:
+        padding = max(0, cfg.bbox_padding)
+        x1 = max(0, min(item.bbox[0] for item in detections) - padding)
+        y1 = max(0, min(item.bbox[1] for item in detections) - padding)
+        x2 = min(out.shape[1] - 1, max(item.bbox[0] + item.bbox[2] for item in detections) + padding)
+        y2 = min(out.shape[0] - 1, max(item.bbox[1] + item.bbox[3] for item in detections) + padding)
+        cv2.rectangle(out, (x1, y1), (x2, y2), color, max(1, cfg.bbox_thickness))
+        label_position = (x1, max(10, y1 - 3))
+    if current is None:
+        if cfg.show_track_id and label_position is not None:
+            cv2.putText(out, str(track_id), label_position, cv2.FONT_HERSHEY_SIMPLEX, .42, color, 1, cv2.LINE_AA)
+        return
+    centroid = tuple_int(current.centroid)
+    if style in {"dot", "minimal"}:
+        radius = max(1, cfg.current_point_radius)
+        if style == "minimal":
+            radius = min(radius, 2)
+        cv2.circle(out, centroid, radius, color, -1, cv2.LINE_AA)
+    elif style == "trail":
+        cv2.circle(out, centroid, max(1, cfg.current_point_radius), color, -1, cv2.LINE_AA)
+    if cfg.show_track_id:
+        if label_position is None:
+            label_position = (centroid[0] + 4, centroid[1] - 4)
+        cv2.putText(out, str(track_id), label_position,
+                    cv2.FONT_HERSHEY_SIMPLEX, .42, color, 1, cv2.LINE_AA)
+
+
 def should_draw_track(track: Track, cfg: ThermalBlobConfig) -> bool:
     return (cfg.draw_inactive_tracks or track.active) and (not cfg.draw_valid_only or is_valid_flying_track(track, cfg))
 
@@ -119,10 +174,9 @@ def draw_debug_overlay(frame: np.ndarray, detections: list, detector: Any, frame
         out = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
     cfg = detector.config
     for track in detector.drawable_tracks():
-        points = track.recent_points(cfg.trail_length)
-        if len(points) >= 2:
-            polyline = np.asarray([tuple_int(point) for point in points], dtype=np.int32).reshape((-1, 1, 2))
-            cv2.polylines(out, [polyline], False, color_for_track(track.track_id), 1, cv2.LINE_AA)
+        current = track.last_detection if track.last_frame_idx == frame_idx else None
+        detections = track.detections if cfg.trail_length <= 0 else track.detections[-cfg.trail_length:]
+        _draw_track_annotation(out, track.track_id, detections, current, cfg)
     _draw_common_overlays(out, cfg, counting_cfg, live_counter, frame_idx, progress_text)
     return out
 
@@ -203,14 +257,8 @@ def draw_event_clip_overlay(frame: np.ndarray, frame_idx: int, window: ClipWindo
         detections = [item for item in track.detections if window.start_frame <= item.frame_idx <= frame_idx]
         if cfg.trail_length > 0:
             detections = detections[-cfg.trail_length:]
-        color = color_for_track(track_id)
-        if len(detections) >= 2:
-            polyline = np.asarray([tuple_int(item.centroid) for item in detections], dtype=np.int32).reshape((-1, 1, 2))
-            cv2.polylines(out, [polyline], False, color, 2, cv2.LINE_AA)
         current = next((item for item in reversed(detections) if item.frame_idx == frame_idx), None)
-        if current is not None:
-            cv2.circle(out, tuple_int(current.centroid), 4, color, -1, cv2.LINE_AA)
-            cv2.putText(out, str(track_id), tuple_int(current.centroid), cv2.FONT_HERSHEY_SIMPLEX, .42, color, 1, cv2.LINE_AA)
+        _draw_track_annotation(out, track_id, detections, current, cfg)
     draw_counting_geometry(out, counting_cfg)
     local_frame = frame_idx - window.start_frame + 1
     clip_frames = window.end_frame - window.start_frame + 1

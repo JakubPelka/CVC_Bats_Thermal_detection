@@ -181,7 +181,41 @@ When `--event-clips-dir` is omitted, clips use
 exactly as supplied; avoid sharing one custom directory across a batch because
 clip filenames can collide.
 
+### Annotation styles
+
+The live preview, full annotated video, and event clips use the same annotation
+style. `bbox-trail` is the default and recommended QA view: it keeps a thin
+trajectory and draws a padded box enclosing the trajectory accumulated so far.
+
+Fast visual QA:
+
+```bash
+--annotation-style bbox-trail --track-line-thickness 1 --bbox-padding 4
+```
+
+Do not cover the object:
+
+```bash
+--annotation-style bbox
+```
+
+Minimal preview:
+
+```bash
+--annotation-style minimal
+```
+
+Other choices are `trail` (the original trail view), `thin-trail`, and `dot`.
+Use `--no-show-track-id` to hide labels. Box, trail, and point dimensions can
+also be adjusted with `--bbox-thickness`, `--track-line-thickness`, and
+`--current-point-radius`. Set `--track-line-thickness 0` to disable the trail
+entirely, including in `thin-trail` and `bbox-trail` modes.
+
 ### Batch processing
+
+By default, batch results are written to an `outputs` folder beside the input
+recordings (or inside the folder passed with `--input-dir`). Use
+`--batch-output-dir` only when a different location is wanted.
 
 Process an explicit list of videos:
 

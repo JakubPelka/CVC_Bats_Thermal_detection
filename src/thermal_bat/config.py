@@ -39,5 +39,11 @@ class ThermalBlobConfig:
     exclude_zones: List[Rect] = field(default_factory=list)
     draw_inactive_tracks: bool = True
     trail_length: int = 0
+    annotation_style: str = "bbox-trail"
+    track_line_thickness: int = 1
+    bbox_thickness: int = 1
+    bbox_padding: int = 4
+    current_point_radius: int = 3
+    show_track_id: bool = True
     draw_roi: bool = True
     draw_exclude_zones: bool = True

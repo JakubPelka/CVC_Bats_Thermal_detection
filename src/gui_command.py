@@ -49,9 +49,12 @@ def build_detector_command(
     else:
         raise ValueError("Choose one input mode: one file, multiple files, or folder.")
 
-    command += ["--batch-output-dir", paths["batch_output_dir"].strip() or "outputs"]
+    if paths["batch_output_dir"].strip():
+        command += ["--batch-output-dir", paths["batch_output_dir"].strip()]
     if paths["video_extensions"].strip():
         command += ["--video-extensions", paths["video_extensions"].strip()]
+    annotation_style = paths.get("annotation_style", "bbox-trail").strip() or "bbox-trail"
+    command += ["--annotation-style", annotation_style]
     for key, flag in (("recursive", "--recursive"), ("continue_on_error", "--continue-on-error"), ("skip_existing", "--skip-existing")):
         if boolean.get(key):
             command.append(flag)
@@ -107,6 +110,8 @@ def build_detector_command(
             command.append(flag)
         elif key == "motion_gate":
             command.append("--no-motion-gate")
+        elif key == "show_track_id":
+            command.append("--no-show-track-id")
 
     roi = paths["roi"].strip()
     if roi:

@@ -115,6 +115,10 @@ NUMERIC_PARAMS: List[Tuple[str, str, str, str, str, str]] = [
     ("background_recalibrate_blend", "--background-recalibrate-blend", "float", "0.5", "Recalibration blend", "Update strength: 1.0 replaces the background; smaller values such as 0.2 adapt gently to slow drift."),
 
     ("trail_length", "--trail-length", "int", "0", "Trail length, 0 = full track", "Length of drawn trail. 0 draws full history; small values draw only a moving tail."),
+    ("track_line_thickness", "--track-line-thickness", "int", "1", "Track line thickness", "Line width for trail annotations. Set 0 to hide the line."),
+    ("bbox_thickness", "--bbox-thickness", "int", "1", "Bounding-box thickness", "Line width for current detection boxes."),
+    ("bbox_padding", "--bbox-padding", "int", "4", "Bounding-box padding", "Extra pixels around the bounding box enclosing the track trajectory."),
+    ("current_point_radius", "--current-point-radius", "int", "3", "Current point radius", "Radius of centroid markers in dot and minimal styles."),
 
     ("activity_bin_seconds", "--activity-bin-seconds", "float", "60.0", "Activity bin seconds", "Length of each time bucket in activity_by_time.csv. Smaller values give more detailed time series; larger values smooth the summary."),
     ("line_crossing_epsilon", "--line-crossing-epsilon", "float", "1.0", "Line crossing epsilon", "Pixel tolerance around a counting line. Points inside this band are treated as being on the line, which reduces false double counts from jitter near the boundary."),
@@ -133,6 +137,7 @@ BOOLEAN_PARAMS: List[Tuple[str, str, str, bool, str]] = [
     ("hide_roi_rectangle", "--hide-roi-rectangle", "Hide ROI rectangle", False, "Hides the ROI rectangle overlay if ROI is used."),
     ("hide_exclude_zones", "--hide-exclude-zones", "Hide exclude-zone rectangles", False, "Hides excluded-area rectangles on the preview/output video."),
     ("count_all_tracks", "--count-all-tracks", "Count all tracks for diagnostics", False, "Counts invalid/static/noisy tracks too. Leave unchecked for final valid-track counting."),
+    ("show_track_id", "--show-track-id", "Show track ID", True, "Labels the current annotation with its track ID."),
 ]
 
 
@@ -841,7 +846,7 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["inputs"] = tk.StringVar(value="")
         self.path_vars["input_dir"] = tk.StringVar(value="")
         self.path_vars["video_extensions"] = tk.StringVar(value=".mp4,.avi,.mov,.mkv")
-        self.path_vars["batch_output_dir"] = tk.StringVar(value="outputs")
+        self.path_vars["batch_output_dir"] = tk.StringVar(value="")
         self.path_vars["output"] = tk.StringVar(value="outputs/thermal_blob_valid_tracks.mp4")
         self.path_vars["csv"] = tk.StringVar(value="outputs/thermal_blob_track_points.csv")
         self.path_vars["summary_csv"] = tk.StringVar(value="outputs/thermal_blob_track_summary.csv")
@@ -861,6 +866,7 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["event_clip_merge_gap_frames"] = tk.StringVar(value="100")
         self.path_vars["event_clip_trigger"] = tk.StringVar(value="valid_tracks")
         self.path_vars["event_clip_fourcc"] = tk.StringVar(value="mp4v")
+        self.path_vars["annotation_style"] = tk.StringVar(value="bbox-trail")
 
         for key, _flag, _typ, default, _label, _explanation in NUMERIC_PARAMS:
             self.num_vars[key] = tk.StringVar(value=default)
@@ -931,7 +937,7 @@ class ThermalDetectorGUI(tk.Tk):
         self._path_row(frame, "Input folder", "input_dir", self._browse_input_dir, row=4)
         batch_row = ttk.Frame(frame)
         batch_row.grid(row=5, column=0, columnspan=3, sticky="ew", padx=4, pady=3)
-        ttk.Label(batch_row, text="Batch output folder").pack(side=tk.LEFT)
+        ttk.Label(batch_row, text="Batch output folder (empty = beside recordings)").pack(side=tk.LEFT)
         ttk.Entry(batch_row, textvariable=self.path_vars["batch_output_dir"], width=35).pack(side=tk.LEFT, padx=8)
         ttk.Button(batch_row, text="Browse", command=self._browse_batch_output_dir).pack(side=tk.LEFT)
         ttk.Label(batch_row, text="Extensions").pack(side=tk.LEFT, padx=(18, 4))
@@ -994,9 +1000,69 @@ class ThermalDetectorGUI(tk.Tk):
         notebook.add(tab_counting, text="Counting / Statistics")
         self._build_counting_tab(tab_counting)
 
-        tab_events = ttk.Frame(notebook, padding=8)
-        notebook.add(tab_events, text="Event clips")
+        tab_events_scroll = ScrollableFrame(notebook, padding=0)
+        notebook.add(tab_events_scroll, text="Event clips / Annotation")
+        tab_events = tab_events_scroll.inner
         self._build_event_clips_tab(tab_events)
+
+        ttk.Label(tab_events, text="Parameter").grid(row=8, column=0, sticky="w", padx=4, pady=(12, 2))
+        ttk.Label(tab_events, text="Value").grid(row=8, column=1, sticky="w", padx=4, pady=(12, 2))
+        ttk.Label(tab_events, text="Explanation").grid(row=8, column=2, sticky="w", padx=8, pady=(12, 2))
+        annotation_parameters = (
+            ("track_line_thickness", "Track line thickness"),
+            ("bbox_thickness", "Bounding-box thickness"),
+            ("bbox_padding", "Bounding-box padding"),
+            ("current_point_radius", "Current point radius"),
+        )
+        numeric_meta = {
+            key: (typ, explanation)
+            for key, _flag, typ, _default, _label, explanation in NUMERIC_PARAMS
+        }
+        for row, (key, label) in enumerate(annotation_parameters, start=9):
+            typ, explanation = numeric_meta[key]
+            ttk.Label(tab_events, text=label).grid(row=row, column=0, sticky="nw", padx=4, pady=4)
+            ttk.Entry(tab_events, textvariable=self.num_vars[key], width=10).grid(
+                row=row, column=1, sticky="nw", padx=4, pady=4
+            )
+            ttk.Label(
+                tab_events, text=f"{typ}. {explanation}", wraplength=520, justify=tk.LEFT,
+            ).grid(row=row, column=2, sticky="nw", padx=8, pady=4)
+
+        ttk.Label(tab_events, text="Track label").grid(row=13, column=0, sticky="nw", padx=4, pady=4)
+        ttk.Checkbutton(
+            tab_events, text="Show track ID", variable=self.bool_vars["show_track_id"],
+        ).grid(row=13, column=1, sticky="nw", padx=4, pady=4)
+        ttk.Label(
+            tab_events,
+            text="Show the track number next to its annotation. Disable this for a cleaner image.",
+            wraplength=520,
+            justify=tk.LEFT,
+        ).grid(row=13, column=2, sticky="nw", padx=8, pady=4)
+
+        ttk.Separator(tab_events, orient=tk.HORIZONTAL).grid(
+            row=14, column=0, columnspan=3, sticky="ew", padx=4, pady=(8, 6)
+        )
+        ttk.Label(tab_events, text="Annotation style").grid(
+            row=15, column=0, sticky="nw", padx=4, pady=4
+        )
+        ttk.Combobox(
+            tab_events, textvariable=self.path_vars["annotation_style"], state="readonly", width=16,
+            values=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal"),
+        ).grid(row=15, column=1, sticky="nw", padx=4, pady=4)
+        ttk.Label(
+            tab_events,
+            text=(
+                "trail — full trajectory line with the current point.\n"
+                "thin-trail — thin trajectory line without a large point.\n"
+                "bbox — only a box enclosing the trajectory so far.\n"
+                "bbox-trail — enclosing box plus a thin line; recommended for visual QA.\n"
+                "dot — only a point at the object's current position.\n"
+                "minimal — a small point and optional track number.\n"
+                "Set Track line thickness to 0 to hide the line completely."
+            ),
+            wraplength=520,
+            justify=tk.LEFT,
+        ).grid(row=15, column=2, sticky="nw", padx=8, pady=4)
 
         tab_flags_scroll = ScrollableFrame(notebook, padding=0)
         notebook.add(tab_flags_scroll, text="Flags")
@@ -1109,7 +1175,7 @@ class ThermalDetectorGUI(tk.Tk):
 
         row = 1
         for key, _flag, label, _default, explanation in BOOLEAN_PARAMS:
-            if key == "show":
+            if key in {"show", "show_track_id"}:
                 continue
             cb = ttk.Checkbutton(parent, text=label, variable=self.bool_vars[key])
             cb.grid(row=row, column=0, sticky="nw", padx=4, pady=4)
