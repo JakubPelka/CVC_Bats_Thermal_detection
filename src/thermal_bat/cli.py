@@ -2,6 +2,7 @@
 
 import argparse
 
+from .config import TRACK_COLOR_PALETTE
 from .pipeline import process_batch, process_video
 
 
@@ -109,6 +110,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--annotation-style", choices=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal"),
         default="bbox-trail", help="Track annotation style used in preview, output video, and event clips",
     )
+    parser.add_argument(
+        "--track-color-mode", choices=("random", "fixed"), default="random",
+        help="Use deterministic per-track colors or one fixed annotation color",
+    )
+    parser.add_argument(
+        "--track-fixed-color", choices=tuple(TRACK_COLOR_PALETTE), default="cyan",
+        help="Fixed annotation color used when --track-color-mode=fixed",
+    )
     parser.add_argument("--track-line-thickness", type=int, default=1, help="Track trail line thickness; 0 disables the trail")
     parser.add_argument("--bbox-thickness", type=int, default=1, help="Current detection bounding-box thickness")
     parser.add_argument("--bbox-padding", type=int, default=4, help="Padding around current detection bounding boxes")
@@ -122,12 +131,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Render event clips as side-by-side views of the same frame",
     )
     parser.add_argument(
-        "--verification-left-style", choices=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal"),
+        "--verification-left-style", choices=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal", "raw"),
         default="bbox-trail", help="Annotation style for the left verification view",
     )
     parser.add_argument(
-        "--verification-right-style", choices=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal"),
-        default="dot", help="Annotation style for the right verification view",
+        "--verification-right-style", choices=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal", "raw"),
+        default="raw", help="Annotation style for the right verification view; raw shows the unannotated source frame",
     )
     parser.add_argument("--hide-roi-rectangle", action="store_true", help="Do not draw ROI rectangle")
     parser.add_argument("--hide-exclude-zones", action="store_true", help="Do not draw exclusion-zone rectangles")

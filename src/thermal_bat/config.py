@@ -5,6 +5,13 @@ from typing import List, Optional, Tuple
 
 Rect = Tuple[int, int, int, int]
 
+TRACK_COLOR_PALETTE = {
+    "red": "#ff3b30", "orange": "#ff9500", "amber": "#ffbf00", "yellow": "#ffe600",
+    "lime": "#a8e600", "green": "#34c759", "teal": "#00bfa5", "cyan": "#00e5ff",
+    "sky": "#42a5f5", "blue": "#0066ff", "indigo": "#5856d6", "violet": "#9c27b0",
+    "magenta": "#ff00cc", "pink": "#ff5c8a", "white": "#ffffff", "gray": "#a0a0a0",
+}
+
 
 @dataclass
 class ThermalBlobConfig:
@@ -40,6 +47,8 @@ class ThermalBlobConfig:
     draw_inactive_tracks: bool = True
     trail_length: int = 0
     annotation_style: str = "bbox-trail"
+    track_color_mode: str = "random"
+    track_fixed_color: str = "cyan"
     track_line_thickness: int = 1
     bbox_thickness: int = 1
     bbox_padding: int = 4
@@ -47,7 +56,7 @@ class ThermalBlobConfig:
     show_track_id: bool = True
     verification_mode: bool = False
     verification_left_style: str = "bbox-trail"
-    verification_right_style: str = "dot"
+    verification_right_style: str = "raw"
     retain_invalid_tracks: bool = False
     draw_roi: bool = True
     draw_exclude_zones: bool = True

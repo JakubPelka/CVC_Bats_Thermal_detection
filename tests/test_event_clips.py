@@ -1,6 +1,16 @@
+from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 
-from event_clips import ClipWindow, build_clip_windows, merge_clip_windows
+import numpy as np
+
+from counting_models import CountingConfig
+from event_clips import (
+    ClipWindow, _clip_datetime_fields, _datetime_from_filename,
+    build_clip_windows, merge_clip_windows,
+)
+from thermal_bat.config import ThermalBlobConfig
+from thermal_bat.visualization import color_for_track, draw_verification_event_clip_overlay
 
 
 def track(track_id, frames):
@@ -41,3 +51,50 @@ def test_all_tracks_excludes_short_noise_tracks():
     )
     assert [item.track_ids for item in windows] == [{2}]
 
+
+def test_datetime_is_read_from_unambiguous_filename():
+    assert _datetime_from_filename(Path("camera_2026-07-16_21-04-05.mp4")) == datetime(2026, 7, 16, 21, 4, 5)
+    assert _datetime_from_filename(Path("camera_20260716_210405.mp4")) == datetime(2026, 7, 16, 21, 4, 5)
+
+
+def test_ambiguous_or_incomplete_filename_datetime_is_ignored():
+    assert _datetime_from_filename(Path("camera_2026-07-16.mp4")) is None
+    assert _datetime_from_filename(Path("20260716_210405_copy_20260717_210405.mp4")) is None
+
+
+def test_clip_datetime_fields_use_absolute_frames_and_handle_midnight():
+    fields = _clip_datetime_fields(datetime(2026, 7, 16, 23, 59, 58), 20, 40, 10.0)
+    assert fields == {
+        "start_date": "2026-07-17", "start_time": "00:00:00",
+        "end_date": "2026-07-17", "end_time": "00:00:02",
+    }
+
+
+def test_clip_datetime_fields_are_empty_without_source_time():
+    assert _clip_datetime_fields(None, 20, 40, 10.0) == {
+        "start_date": "", "start_time": "", "end_date": "", "end_time": "",
+    }
+
+
+def test_raw_right_verification_pane_is_unchanged_source_frame():
+    frame = np.arange(12 * 16 * 3, dtype=np.uint8).reshape((12, 16, 3))
+    cfg = ThermalBlobConfig(verification_left_style="minimal", verification_right_style="raw")
+
+    output = draw_verification_event_clip_overlay(
+        frame, 4, ClipWindow(4, 4), {}, CountingConfig(), cfg, 1, 1,
+    )
+
+    assert output.shape == (12, 32, 3)
+    assert np.array_equal(output[:, 16:], frame)
+
+
+def test_fixed_track_color_is_shared_by_all_tracks():
+    cfg = ThermalBlobConfig(track_color_mode="fixed", track_fixed_color="cyan")
+    assert color_for_track(1, cfg) == (255, 229, 0)
+    assert color_for_track(99, cfg) == color_for_track(1, cfg)
+
+
+def test_random_track_colors_remain_deterministic_and_distinct():
+    cfg = ThermalBlobConfig(track_color_mode="random")
+    assert color_for_track(1, cfg) == color_for_track(1, cfg)
+    assert color_for_track(1, cfg) != color_for_track(2, cfg)

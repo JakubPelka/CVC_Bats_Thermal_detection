@@ -21,3 +21,4 @@ examples/*
 !tests/data/*.csv
 !presets/
 !presets/*.json
+/tests

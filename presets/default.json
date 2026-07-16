@@ -2,11 +2,11 @@
   "paths": {
     "script": "thermal_blob_detector",
     "input_mode": "folder",
-    "input": "/home/jakub-pelka/MobileTransfer/Nagrania nietoperzy/tory1/vid_2026-07-12_014132_1.mp4",
+    "input": "/home/jakub-pelka/MobileTransfer/Nagrania nietoperzy/Passage_2-1_15-16_juli/vid_2026-07-16_003628_1.mp4",
     "inputs": "",
-    "input_dir": "/home/jakub-pelka/MobileTransfer/Nagrania nietoperzy/tory1",
+    "input_dir": "/home/jakub-pelka/MobileTransfer/Nagrania nietoperzy/Passage_2-1_15-16_juli",
     "video_extensions": ".mp4,.avi,.mov,.mkv",
-    "batch_output_dir": "/home/jakub-pelka/MobileTransfer/Nagrania nietoperzy/tory1/output_verificationmode",
+    "batch_output_dir": "/home/jakub-pelka/MobileTransfer/Nagrania nietoperzy/Passage_2-1_15-16_juli",
     "output": "outputs/thermal_blob_valid_tracks.mp4",
     "csv": "outputs/thermal_blob_track_points.csv",
     "summary_csv": "outputs/thermal_blob_track_summary.csv",
@@ -27,6 +27,8 @@
     "event_clip_trigger": "valid_tracks",
     "event_clip_fourcc": "mp4v",
     "annotation_style": "bbox-trail",
+    "track_color_mode": "fixed",
+    "track_fixed_color": "yellow",
     "verification_left_style": "bbox-trail",
     "verification_right_style": "raw"
   },

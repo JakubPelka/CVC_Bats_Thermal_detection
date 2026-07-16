@@ -31,6 +31,8 @@ class GuiCommandTests(unittest.TestCase):
         self.assertEqual(command[:4], [sys.executable, "-u", "-m", "thermal_blob_detector"])
         self.assertIn("--input", command)
         self.assertIn("--threshold", command)
+        self.assertEqual(command[command.index("--track-color-mode") + 1], "random")
+        self.assertEqual(command[command.index("--track-fixed-color") + 1], "cyan")
 
 
 if __name__ == "__main__":

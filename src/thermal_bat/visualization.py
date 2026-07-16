@@ -12,7 +12,7 @@ import numpy as np
 from counting_geometry import line_points
 from counting_models import CountingConfig
 from event_clips import ClipWindow
-from .config import ThermalBlobConfig
+from .config import TRACK_COLOR_PALETTE, ThermalBlobConfig
 from .models import BlobDetection, Point, Track
 from .validation import is_valid_flying_track
 
@@ -103,7 +103,7 @@ class OverlayRenderer:
         if len(points) < 2:
             return
         polyline = np.asarray([tuple_int(point) for point in points], dtype=np.int32).reshape((-1, 1, 2))
-        cv2.polylines(target, [polyline], False, color_for_track(track.track_id), thickness, cv2.LINE_AA)
+        cv2.polylines(target, [polyline], False, color_for_track(track.track_id, cfg), thickness, cv2.LINE_AA)
 
 
 def tuple_int(point: Point) -> Tuple[int, int]:
@@ -111,9 +111,17 @@ def tuple_int(point: Point) -> Tuple[int, int]:
 
 
 @lru_cache(maxsize=None)
-def color_for_track(track_id: int) -> Tuple[int, int, int]:
+def _random_track_color(track_id: int) -> Tuple[int, int, int]:
     color = np.random.default_rng(track_id * 9973).integers(80, 255, size=3)
     return int(color[0]), int(color[1]), int(color[2])
+
+
+def color_for_track(track_id: int, cfg: ThermalBlobConfig) -> Tuple[int, int, int]:
+    if cfg.track_color_mode != "fixed":
+        return _random_track_color(track_id)
+    color_hex = TRACK_COLOR_PALETTE.get(cfg.track_fixed_color, TRACK_COLOR_PALETTE["cyan"])
+    red, green, blue = (int(color_hex[index:index + 2], 16) for index in (1, 3, 5))
+    return blue, green, red
 
 
 def _style_has_trail(style: str) -> bool:
@@ -129,7 +137,7 @@ def _trail_thickness(cfg: ThermalBlobConfig) -> int:
 def _draw_track_annotation(out: np.ndarray, track_id: int, detections: Sequence[BlobDetection],
                            current: Optional[BlobDetection], cfg: ThermalBlobConfig) -> None:
     style = cfg.annotation_style
-    color = color_for_track(track_id)
+    color = color_for_track(track_id, cfg)
     points = [item.centroid for item in detections]
     trail_thickness = _trail_thickness(cfg)
     if _style_has_trail(style) and trail_thickness > 0 and len(points) >= 2:
@@ -155,7 +163,7 @@ def _draw_track_annotation(out: np.ndarray, track_id: int, detections: Sequence[
         current_y2 = min(out.shape[0] - 1, y + h + padding)
         cv2.rectangle(
             out, (current_x1, current_y1), (current_x2, current_y2),
-            (255, 255, 255), max(1, cfg.bbox_thickness),
+            color, max(1, cfg.bbox_thickness),
         )
     if current is None:
         if cfg.show_track_id and label_position is not None:
@@ -294,18 +302,26 @@ def draw_verification_event_clip_overlay(
     counting_cfg: CountingConfig, cfg: ThermalBlobConfig, clip_idx: int, clip_count: int,
 ) -> np.ndarray:
     """Render two independently annotated copies of one event-clip frame."""
-    left = draw_event_clip_overlay(
-        frame, frame_idx, window, tracks, counting_cfg,
-        replace(cfg, annotation_style=cfg.verification_left_style), clip_idx, clip_count,
-    )
-    right = draw_event_clip_overlay(
-        frame, frame_idx, window, tracks, counting_cfg,
-        replace(cfg, annotation_style=cfg.verification_right_style), clip_idx, clip_count,
-    )
-    for pane, label in (
-        (left, f"LEFT: {cfg.verification_left_style}"),
-        (right, f"RIGHT: {cfg.verification_right_style}"),
-    ):
+    def render_pane(style: str) -> np.ndarray:
+        if style == "raw":
+            pane = frame.copy()
+            return cv2.cvtColor(pane, cv2.COLOR_GRAY2BGR) if pane.ndim == 2 else pane
+        return draw_event_clip_overlay(
+            frame, frame_idx, window, tracks, counting_cfg,
+            replace(cfg, annotation_style=style), clip_idx, clip_count,
+        )
+
+    left = render_pane(cfg.verification_left_style)
+    right = render_pane(cfg.verification_right_style)
+    labels = [
+        (pane, f"{side}: {style}")
+        for pane, side, style in (
+            (left, "LEFT", cfg.verification_left_style),
+            (right, "RIGHT", cfg.verification_right_style),
+        )
+        if style != "raw"
+    ]
+    for pane, label in labels:
         position = (8, max(18, pane.shape[0] - 12))
         cv2.putText(pane, label, position, cv2.FONT_HERSHEY_SIMPLEX, .48, (0, 0, 0), 3, cv2.LINE_AA)
         cv2.putText(pane, label, position, cv2.FONT_HERSHEY_SIMPLEX, .48, (255, 255, 255), 1, cv2.LINE_AA)

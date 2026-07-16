@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import csv
 import json
+import re
+import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Iterable, List, Sequence, Set
+from typing import Any, Callable, Iterable, List, Optional, Sequence, Set
+
+
+_FILENAME_DATETIME_PATTERNS = (
+    re.compile(r"(?<!\d)(?P<date>\d{4}[.-]\d{2}[.-]\d{2})[T_ -](?P<time>\d{2}[.-]\d{2}[.-]\d{2})(?!\d)"),
+    re.compile(r"(?<!\d)(?P<date>\d{8})[T_ -](?P<time>\d{6})(?!\d)"),
+)
 
 @dataclass
 class ClipWindow:
@@ -109,6 +118,78 @@ def build_clip_filename(clip_idx: int, window: ClipWindow) -> str:
     return f"clip_{clip_idx:04d}_f{window.start_frame:06d}_f{window.end_frame:06d}_tracks_{tracks}.mp4"
 
 
+def _parse_datetime(value: str) -> Optional[datetime]:
+    normalized = value.strip()
+    if not normalized:
+        return None
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _datetime_from_video_metadata(input_path: Path) -> Optional[datetime]:
+    """Read creation_time from container/stream metadata when ffprobe is available."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "format_tags=creation_time:stream_tags=creation_time", "-of", "json", str(input_path)],
+            capture_output=True, text=True, check=True, timeout=15,
+        )
+        payload = json.loads(result.stdout)
+    except (FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError):
+        return None
+
+    values = []
+    format_tags = payload.get("format", {}).get("tags", {})
+    if format_tags.get("creation_time"):
+        values.append(format_tags["creation_time"])
+    for stream in payload.get("streams", []):
+        value = stream.get("tags", {}).get("creation_time")
+        if value:
+            values.append(value)
+    parsed = [_parse_datetime(str(value)) for value in values]
+    parsed = [value for value in parsed if value is not None]
+    if not parsed:
+        return None
+    first = parsed[0]
+    if any(value.replace(tzinfo=None) != first.replace(tzinfo=None) for value in parsed[1:]):
+        return None
+    return first
+
+
+def _datetime_from_filename(input_path: Path) -> Optional[datetime]:
+    """Accept only complete, unambiguous date-and-time tokens in a filename."""
+    matches = []
+    for pattern in _FILENAME_DATETIME_PATTERNS:
+        for match in pattern.finditer(input_path.stem):
+            digits = re.sub(r"\D", "", match.group("date") + match.group("time"))
+            try:
+                matches.append(datetime.strptime(digits, "%Y%m%d%H%M%S"))
+            except ValueError:
+                continue
+    unique = list(dict.fromkeys(matches))
+    return unique[0] if len(unique) == 1 else None
+
+
+def video_start_datetime(input_path: Path) -> Optional[datetime]:
+    return _datetime_from_video_metadata(input_path) or _datetime_from_filename(input_path)
+
+
+def _clip_datetime_fields(source_start: Optional[datetime], start_frame: int, end_frame: int, fps: float) -> dict:
+    empty = {"start_date": "", "start_time": "", "end_date": "", "end_time": ""}
+    if source_start is None or fps <= 0:
+        return empty
+    start = source_start + timedelta(seconds=start_frame / fps)
+    end = source_start + timedelta(seconds=end_frame / fps)
+    return {
+        "start_date": start.strftime("%Y-%m-%d"), "start_time": start.strftime("%H:%M:%S"),
+        "end_date": end.strftime("%Y-%m-%d"), "end_time": end.strftime("%H:%M:%S"),
+    }
+
+
 def export_event_clips(
     input_path: Path, output_dir: Path, windows: Sequence[ClipWindow], fps: float,
     width: int, height: int, fourcc: str,
@@ -124,6 +205,7 @@ def export_event_clips(
         raise RuntimeError(f"Could not re-open video for event clips: {input_path}")
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest: List[dict] = []
+    source_start = video_start_datetime(input_path)
     try:
         for clip_idx, window in enumerate(windows, start=1):
             filename = build_clip_filename(clip_idx, window)
@@ -157,7 +239,7 @@ def export_event_clips(
             temporary_path.replace(output_path)
             actual_end = max(window.start_frame, frame_idx - 1)
             duration_frames = actual_end - window.start_frame + 1
-            manifest.append({
+            row = {
                 "clip_id": clip_idx, "filename": filename,
                 "start_frame": window.start_frame, "end_frame": actual_end,
                 "source_start_frame": window.start_frame,
@@ -170,7 +252,9 @@ def export_event_clips(
                 "valid_track_count": len(window.track_ids & valid_track_ids),
                 "crossing_count": len(window.crossing_event_ids),
                 "aoi_event_count": len(window.aoi_event_ids),
-            })
+            }
+            row.update(_clip_datetime_fields(source_start, window.start_frame, actual_end, fps))
+            manifest.append(row)
     finally:
         cap.release()
     return manifest

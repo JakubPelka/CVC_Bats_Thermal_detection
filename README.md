@@ -169,7 +169,11 @@ The full analysis runs first. The input is then re-opened and clips are drawn
 from the stored track detections. Overlapping or nearby activity windows are
 merged, so simultaneous tracks produce one clip rather than duplicates. The
 directory also receives `event_clips_manifest.csv` and
-`event_clips_manifest.json`.
+`event_clips_manifest.json`. Both manifests include `start_date`, `start_time`,
+`end_date`, and `end_time` for every clip. The source recording start is read
+from its `creation_time` metadata or, as a fallback, from an unambiguous date
+and time in the source filename. These fields remain empty when neither source
+provides a reliable timestamp.
 
 The default trigger is `valid_tracks`. Use `--event-clip-trigger` with
 `all_tracks`, `crossings`, `aois`, or `all_events` to select other completed
@@ -213,22 +217,32 @@ also be adjusted with `--bbox-thickness`, `--track-line-thickness`, and
 `--current-point-radius`. Set `--track-line-thickness 0` to disable the trail
 entirely, including in `thin-trail` and `bbox-trail` modes.
 
+Track annotations use stable per-track colors by default. To draw every track,
+box, point, and ID in one color, select `fixed` and one of the 16 GUI palette
+colors, or use for example:
+
+```bash
+--track-color-mode fixed \
+--track-fixed-color cyan
+```
+
 #### Verification mode
 
 Verification mode renders each event-clip frame twice, side by side, so two
 annotation styles can be reviewed in one pass. For example, compare the full
-track box on the left with a point-only view on the right:
+track box on the left with the unannotated source frame on the right:
 
 ```bash
 --event-clips \
 --verification-mode \
 --verification-left-style bbox-trail \
---verification-right-style dot \
+--verification-right-style raw \
 --track-line-thickness 0
 ```
 
 The two panels contain the same source frame. Verification mode affects event
-clips only; live preview and the full annotated video keep using
+clips only. The `raw` style contains no tracks, geometry, HUD, or panel label.
+Live preview and the full annotated video keep using
 `--annotation-style`.
 
 ### Batch processing

@@ -42,6 +42,7 @@ from tkinter.scrolledtext import ScrolledText
 import cv2
 
 from gui_command import build_detector_command
+from thermal_bat.config import TRACK_COLOR_PALETTE
 
 
 APP_TITLE = "Thermal Bat Blob Detector - Parameter GUI"
@@ -868,8 +869,10 @@ class ThermalDetectorGUI(tk.Tk):
         self.path_vars["event_clip_trigger"] = tk.StringVar(value="valid_tracks")
         self.path_vars["event_clip_fourcc"] = tk.StringVar(value="mp4v")
         self.path_vars["annotation_style"] = tk.StringVar(value="bbox-trail")
+        self.path_vars["track_color_mode"] = tk.StringVar(value="random")
+        self.path_vars["track_fixed_color"] = tk.StringVar(value="cyan")
         self.path_vars["verification_left_style"] = tk.StringVar(value="bbox-trail")
-        self.path_vars["verification_right_style"] = tk.StringVar(value="dot")
+        self.path_vars["verification_right_style"] = tk.StringVar(value="raw")
 
         for key, _flag, _typ, default, _label, _explanation in NUMERIC_PARAMS:
             self.num_vars[key] = tk.StringVar(value=default)
@@ -1063,25 +1066,52 @@ class ThermalDetectorGUI(tk.Tk):
             justify=tk.LEFT,
         ).grid(row=15, column=2, sticky="nw", padx=8, pady=4)
 
-        ttk.Label(tab_events, text="Verification mode").grid(row=16, column=0, sticky="nw", padx=4, pady=4)
+        ttk.Label(tab_events, text="Track colors").grid(row=16, column=0, sticky="nw", padx=4, pady=4)
+        ttk.Combobox(
+            tab_events, textvariable=self.path_vars["track_color_mode"], state="readonly", width=16,
+            values=("random", "fixed"),
+        ).grid(row=16, column=1, sticky="nw", padx=4, pady=4)
+        ttk.Label(
+            tab_events,
+            text="random = deterministic color per track; fixed = one palette color for all track annotations.",
+            wraplength=520, justify=tk.LEFT,
+        ).grid(row=16, column=2, sticky="nw", padx=8, pady=4)
+
+        ttk.Label(tab_events, text="Fixed color").grid(row=17, column=0, sticky="nw", padx=4, pady=4)
+        palette = ttk.Frame(tab_events)
+        palette.grid(row=17, column=1, sticky="nw", padx=4, pady=4)
+        for index, (name, color_hex) in enumerate(TRACK_COLOR_PALETTE.items()):
+            tk.Button(
+                palette, background=color_hex, activebackground=color_hex, width=2, height=1,
+                relief=tk.RAISED, borderwidth=1,
+                command=lambda selected=name: (
+                    self.path_vars["track_fixed_color"].set(selected),
+                    self.path_vars["track_color_mode"].set("fixed"),
+                ),
+            ).grid(row=index // 8, column=index % 8, padx=1, pady=1)
+        ttk.Label(
+            tab_events, textvariable=self.path_vars["track_fixed_color"],
+        ).grid(row=17, column=2, sticky="nw", padx=8, pady=4)
+
+        ttk.Label(tab_events, text="Verification mode").grid(row=18, column=0, sticky="nw", padx=4, pady=4)
         ttk.Checkbutton(
             tab_events, text="Side-by-side event clip", variable=self.bool_vars["verification_mode"],
-        ).grid(row=16, column=1, sticky="nw", padx=4, pady=4)
+        ).grid(row=18, column=1, sticky="nw", padx=4, pady=4)
         ttk.Label(
             tab_events,
             text="Show the same event-clip frame twice, with an independent annotation style on each side.",
             wraplength=520, justify=tk.LEFT,
-        ).grid(row=16, column=2, sticky="nw", padx=8, pady=4)
+        ).grid(row=18, column=2, sticky="nw", padx=8, pady=4)
 
         verification_styles = (
             ("verification_left_style", "Left style", "Annotation shown on the left side."),
             ("verification_right_style", "Right style", "Annotation shown on the right side."),
         )
-        for row, (key, label, explanation) in enumerate(verification_styles, start=17):
+        for row, (key, label, explanation) in enumerate(verification_styles, start=19):
             ttk.Label(tab_events, text=label).grid(row=row, column=0, sticky="nw", padx=4, pady=4)
             ttk.Combobox(
                 tab_events, textvariable=self.path_vars[key], state="readonly", width=16,
-                values=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal"),
+                values=("trail", "thin-trail", "bbox", "bbox-trail", "dot", "minimal", "raw"),
             ).grid(row=row, column=1, sticky="nw", padx=4, pady=4)
             ttk.Label(tab_events, text=explanation, wraplength=520, justify=tk.LEFT).grid(
                 row=row, column=2, sticky="nw", padx=8, pady=4

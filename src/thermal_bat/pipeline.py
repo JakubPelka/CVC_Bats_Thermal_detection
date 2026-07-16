@@ -132,6 +132,8 @@ def process_single_video(
         draw_inactive_tracks=not args.hide_inactive_tracks,
         trail_length=args.trail_length,
         annotation_style=args.annotation_style,
+        track_color_mode=args.track_color_mode,
+        track_fixed_color=args.track_fixed_color,
         track_line_thickness=max(0, args.track_line_thickness),
         bbox_thickness=max(1, args.bbox_thickness),
         bbox_padding=max(0, args.bbox_padding),

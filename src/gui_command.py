@@ -56,8 +56,12 @@ def build_detector_command(
     annotation_style = paths.get("annotation_style", "bbox-trail").strip() or "bbox-trail"
     command += ["--annotation-style", annotation_style]
     command += [
+        "--track-color-mode", paths.get("track_color_mode", "random").strip() or "random",
+        "--track-fixed-color", paths.get("track_fixed_color", "cyan").strip() or "cyan",
+    ]
+    command += [
         "--verification-left-style", paths.get("verification_left_style", "bbox-trail").strip() or "bbox-trail",
-        "--verification-right-style", paths.get("verification_right_style", "dot").strip() or "dot",
+        "--verification-right-style", paths.get("verification_right_style", "raw").strip() or "raw",
     ]
     for key, flag in (("recursive", "--recursive"), ("continue_on_error", "--continue-on-error"), ("skip_existing", "--skip-existing")):
         if boolean.get(key):
