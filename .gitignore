@@ -22,3 +22,4 @@ examples/*
 !presets/
 !presets/*.json
 /tests
+/tests

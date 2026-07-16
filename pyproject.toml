@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 thermal-blob-detector = "thermal_blob_detector:main"
 thermal-blob-detector-gui = "gui:main"
+cvc-bats-auto = "cvc_bats_auto:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -24,6 +25,7 @@ py-modules = [
     "counting_geometry",
     "counting_models",
     "batch_processing",
+    "cvc_bats_auto",
     "event_clips",
     "gui",
     "gui_command",

@@ -1,3 +1,4 @@
+import csv
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,7 +8,7 @@ import numpy as np
 from counting_models import CountingConfig
 from event_clips import (
     ClipWindow, _clip_datetime_fields, _datetime_from_filename,
-    build_clip_windows, merge_clip_windows,
+    build_clip_windows, merge_clip_windows, write_clip_manifest,
 )
 from thermal_bat.config import ThermalBlobConfig
 from thermal_bat.visualization import color_for_track, draw_verification_event_clip_overlay
@@ -98,3 +99,21 @@ def test_random_track_colors_remain_deterministic_and_distinct():
     cfg = ThermalBlobConfig(track_color_mode="random")
     assert color_for_track(1, cfg) == color_for_track(1, cfg)
     assert color_for_track(1, cfg) != color_for_track(2, cfg)
+
+
+def test_clip_manifest_csv_is_excel_friendly_and_keeps_lists_in_one_cell(tmp_path):
+    rows = [{
+        "clip_id": 1, "track_ids": [12, 34], "event_ids": ["a", "b"],
+        "start_date": "2026-07-16", "start_time": "00:36:36",
+    }]
+
+    write_clip_manifest(tmp_path, rows)
+
+    raw = (tmp_path / "event_clips_manifest.csv").read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    with (tmp_path / "event_clips_manifest.csv").open(newline="", encoding="utf-8-sig") as file_obj:
+        parsed = list(csv.DictReader(file_obj, delimiter=";"))
+    assert parsed == [{
+        "clip_id": "1", "track_ids": "12|34", "event_ids": "a|b",
+        "start_date": "2026-07-16", "start_time": "00:36:36",
+    }]

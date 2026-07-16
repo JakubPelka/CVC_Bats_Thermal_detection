@@ -173,7 +173,9 @@ directory also receives `event_clips_manifest.csv` and
 `end_date`, and `end_time` for every clip. The source recording start is read
 from its `creation_time` metadata or, as a fallback, from an unambiguous date
 and time in the source filename. These fields remain empty when neither source
-provides a reliable timestamp.
+provides a reliable timestamp. The CSV uses semicolon-separated columns and
+pipe-separated list values so it opens correctly in European Excel/LibreOffice
+locales while keeping track and event ID lists inside one cell.
 
 The default trigger is `valid_tracks`. Use `--event-clip-trigger` with
 `all_tracks`, `crossings`, `aois`, or `all_events` to select other completed
@@ -414,6 +416,44 @@ JSON**:
 - `diagnostic_all_tracks.json`
 - `quick_500_frame_test.json`
 - `full_video.json`
+
+## Linux automatic folder processing
+
+The Linux installer creates a user-level systemd service that watches one
+folder recursively and analyzes new videos sequentially with
+`presets/default.json`:
+
+```bash
+./installautomat.sh
+```
+
+The installer asks for the watched folder and creates it when necessary. The
+default is `~/Nagrania nietoperzy`; a path can also be supplied directly:
+
+```bash
+./installautomat.sh "$HOME/MobileTransfer/Nagrania nietoperzy"
+```
+
+Existing videos are recorded as the initial baseline and are not analyzed.
+After installation, each new video is queued only after its size has remained
+unchanged for three minutes. One analysis runs at a time. Runtime input/output
+paths saved in the GUI preset are ignored: results are generated beside the
+source folder under `output-default/<video_name>/`. Directories beginning with
+`output-` are never scanned as source folders.
+
+Useful service commands:
+
+```bash
+systemctl --user status cvc-bats-auto.service
+journalctl --user -u cvc-bats-auto.service -f
+systemctl --user restart cvc-bats-auto.service
+```
+
+Configuration is stored in `~/.config/cvc-bats-auto/config.json`; the technical
+deduplication state is stored in `~/.local/state/cvc-bats-auto/state.json`.
+Re-running the installer keeps the existing state unless the watched directory
+is changed, in which case files already present in the new directory become the
+new baseline.
 
 ## Documentation
 

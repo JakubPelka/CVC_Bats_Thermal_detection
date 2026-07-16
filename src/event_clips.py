@@ -265,8 +265,11 @@ def write_clip_manifest(output_dir: Path, rows: Sequence[dict]) -> None:
     csv_path = output_dir / "event_clips_manifest.csv"
     json_path.write_text(json.dumps(list(rows), indent=2), encoding="utf-8")
     fields = list(rows[0]) if rows else []
-    with csv_path.open("w", newline="", encoding="utf-8") as file_obj:
-        writer = csv.DictWriter(file_obj, fieldnames=fields)
+    # Semicolon-separated UTF-8 with BOM opens into columns directly in Excel
+    # installations that use a comma as the decimal separator. Pipes keep list
+    # values unambiguous without competing with the CSV delimiter.
+    with csv_path.open("w", newline="", encoding="utf-8-sig") as file_obj:
+        writer = csv.DictWriter(file_obj, fieldnames=fields, delimiter=";")
         writer.writeheader()
         for row in rows:
-            writer.writerow({key: ";".join(map(str, value)) if isinstance(value, list) else value for key, value in row.items()})
+            writer.writerow({key: "|".join(map(str, value)) if isinstance(value, list) else value for key, value in row.items()})

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from batch_processing import build_output_paths, collect_input_videos, safe_stem
+from cvc_bats_auto import build_analysis_command, initialize_state, iter_source_videos, load_json
 
 
 def args(**overrides):
@@ -62,3 +63,49 @@ def test_custom_event_clip_directory_is_used_exactly(tmp_path):
     custom = tmp_path / "clips"
     paths = build_output_paths(Path("night.mp4"), tmp_path, args(event_clips_dir=str(custom)))
     assert paths["event_clips_dir"] == custom
+
+
+def test_auto_scan_is_recursive_and_ignores_output_directories(tmp_path):
+    nested = tmp_path / "camera"
+    nested.mkdir()
+    source = nested / "night.mp4"
+    source.touch()
+    output = nested / "output-default" / "night"
+    output.mkdir(parents=True)
+    (output / "clip.mp4").touch()
+
+    found = list(iter_source_videos(tmp_path, {".mp4"}))
+
+    assert found == [source.resolve()]
+
+
+def test_auto_initialize_marks_existing_videos_as_baseline(tmp_path):
+    video = tmp_path / "existing.mp4"
+    video.write_bytes(b"video")
+    state_path = tmp_path / "state.json"
+    config = {"watch_directory": str(tmp_path), "video_extensions": ".mp4"}
+
+    assert initialize_state(config, state_path) == 1
+
+    entry = load_json(state_path)["files"][str(video.resolve())]
+    assert entry["status"] == "baseline"
+    assert entry["size"] == 5
+
+
+def test_auto_command_overrides_preset_runtime_paths(tmp_path):
+    repo = Path(__file__).resolve().parent.parent
+    video = tmp_path / "camera" / "night.mp4"
+    video.parent.mkdir()
+    video.touch()
+    config = {
+        "repo_directory": str(repo),
+        "preset_path": str(repo / "presets" / "default.json"),
+        "output_directory_name": "output-default",
+    }
+
+    command = build_analysis_command(video, config)
+
+    assert command[command.index("--inputs") + 1] == str(video)
+    assert command[command.index("--batch-output-dir") + 1] == str(video.parent / "output-default")
+    assert command[command.index("--parameter-preset") + 1] == "default"
+    assert str(repo / "outputs") not in command
