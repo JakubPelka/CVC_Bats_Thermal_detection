@@ -105,8 +105,19 @@ from pathlib import Path
 
 service_path, repo_dir, config_path, state_path = map(Path, sys.argv[1:])
 
-def quote(value: Path) -> str:
+def command_arg(value: Path) -> str:
     return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+def unit_path(value: Path) -> str:
+    # WorkingDirectory= does not remove surrounding quotes on all supported
+    # systemd versions. Escape whitespace in the unquoted absolute path instead.
+    return (
+        str(value)
+        .replace('\\', r'\x5c')
+        .replace(' ', r'\x20')
+        .replace('\t', r'\x09')
+        .replace('%', '%%')
+    )
 
 python_path = repo_dir / ".venv" / "bin" / "python"
 content = f"""[Unit]
@@ -115,8 +126,8 @@ After=default.target
 
 [Service]
 Type=simple
-WorkingDirectory={quote(repo_dir)}
-ExecStart={quote(python_path)} -m cvc_bats_auto --config {quote(config_path)} --state {quote(state_path)}
+WorkingDirectory={unit_path(repo_dir)}
+ExecStart={command_arg(python_path)} -m cvc_bats_auto --config {command_arg(config_path)} --state {command_arg(state_path)}
 Restart=on-failure
 RestartSec=15
 Environment=PYTHONUNBUFFERED=1

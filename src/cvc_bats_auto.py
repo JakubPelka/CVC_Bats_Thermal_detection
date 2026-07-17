@@ -56,7 +56,10 @@ def iter_source_videos(watch_directory: Path, extensions: set[str]) -> Iterable[
             relative_parts = path.relative_to(watch_directory).parts[:-1]
         except ValueError:
             continue
-        if any(part.lower().startswith("output-") for part in relative_parts):
+        if any(
+            part.lower().startswith("output-") or part.lower().endswith("_event_clips")
+            for part in relative_parts
+        ):
             continue
         yield path.resolve()
 
