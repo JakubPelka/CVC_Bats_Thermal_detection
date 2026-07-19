@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
+from datetime import datetime, timedelta
 
 from counting_geometry import line_points
 from counting_models import CountingConfig
@@ -268,7 +269,9 @@ def draw_counting_hud(frame: np.ndarray, live_counter: Any, frame_idx: int) -> N
 
 def draw_event_clip_overlay(frame: np.ndarray, frame_idx: int, window: ClipWindow,
                             tracks: Dict[int, Track], counting_cfg: CountingConfig,
-                            cfg: ThermalBlobConfig, clip_idx: int, clip_count: int) -> np.ndarray:
+                            cfg: ThermalBlobConfig, clip_idx: int, clip_count: int,
+                            source_filename: str = "", source_start: Optional[datetime] = None,
+                            fps: float = 0.0) -> np.ndarray:
     out = frame.copy()
     if out.ndim == 2:
         out = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
@@ -284,12 +287,18 @@ def draw_event_clip_overlay(frame: np.ndarray, frame_idx: int, window: ClipWindo
     draw_counting_geometry(out, counting_cfg)
     local_frame = frame_idx - window.start_frame + 1
     clip_frames = window.end_frame - window.start_frame + 1
-    hud_lines = [
+    hud_lines = []
+    if source_filename:
+        hud_lines.append(f"Recording: {source_filename}")
+    if source_start is not None and fps > 0:
+        frame_time = source_start + timedelta(seconds=frame_idx / fps)
+        hud_lines.append(f"Time: {frame_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    hud_lines.extend([
         f"Clip {clip_idx}/{clip_count} | Source frame {frame_idx} "
         f"| source window {window.start_frame}-{window.end_frame} "
         f"| clip frame {local_frame}/{clip_frames}",
         f"Tracks: {len(window.track_ids)} | trigger: {','.join(sorted(window.sources))}",
-    ]
+    ])
     for line_index, hud in enumerate(hud_lines):
         position = (8, 20 + 18 * line_index)
         cv2.putText(out, hud, position, cv2.FONT_HERSHEY_SIMPLEX, .43, (0, 0, 0), 3, cv2.LINE_AA)
@@ -300,6 +309,7 @@ def draw_event_clip_overlay(frame: np.ndarray, frame_idx: int, window: ClipWindo
 def draw_verification_event_clip_overlay(
     frame: np.ndarray, frame_idx: int, window: ClipWindow, tracks: Dict[int, Track],
     counting_cfg: CountingConfig, cfg: ThermalBlobConfig, clip_idx: int, clip_count: int,
+    source_filename: str = "", source_start: Optional[datetime] = None, fps: float = 0.0,
 ) -> np.ndarray:
     """Render two independently annotated copies of one event-clip frame."""
     def render_pane(style: str) -> np.ndarray:
@@ -309,6 +319,7 @@ def draw_verification_event_clip_overlay(
         return draw_event_clip_overlay(
             frame, frame_idx, window, tracks, counting_cfg,
             replace(cfg, annotation_style=style), clip_idx, clip_count,
+            source_filename, source_start, fps,
         )
 
     left = render_pane(cfg.verification_left_style)

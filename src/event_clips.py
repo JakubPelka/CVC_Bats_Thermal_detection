@@ -112,10 +112,16 @@ def merge_clip_windows(windows: Iterable[ClipWindow], merge_gap_frames: int) -> 
     return merged
 
 
-def build_clip_filename(clip_idx: int, window: ClipWindow) -> str:
-    ids = sorted(window.track_ids)
-    tracks = str(len(ids))
-    return f"clip_{clip_idx:04d}_f{window.start_frame:06d}_f{window.end_frame:06d}_tracks_{tracks}.mp4"
+def build_clip_filename(input_path: Path, clip_idx: int, window: ClipWindow,
+                        source_start: Optional[datetime], fps: float) -> str:
+    source = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in input_path.stem) or "video"
+    if source_start is not None and fps > 0:
+        clip_start = source_start + timedelta(seconds=window.start_frame / fps)
+        time_token = clip_start.strftime("%H-%M-%S")
+    else:
+        seconds = window.start_frame / fps if fps > 0 else 0.0
+        time_token = f"t{seconds:010.3f}".replace(".", "-")
+    return f"{source}_clip_{clip_idx:04d}_{time_token}.mp4"
 
 
 def _parse_datetime(value: str) -> Optional[datetime]:
@@ -208,7 +214,7 @@ def export_event_clips(
     source_start = video_start_datetime(input_path)
     try:
         for clip_idx, window in enumerate(windows, start=1):
-            filename = build_clip_filename(clip_idx, window)
+            filename = build_clip_filename(input_path, clip_idx, window, source_start, fps)
             output_path = output_dir / filename
             temporary_path = output_dir / f".{output_path.stem}.part{output_path.suffix}"
             print(f"Writing event clip {clip_idx}/{len(windows)}: {output_path}")
@@ -240,7 +246,9 @@ def export_event_clips(
             actual_end = max(window.start_frame, frame_idx - 1)
             duration_frames = actual_end - window.start_frame + 1
             row = {
-                "clip_id": clip_idx, "filename": filename,
+                "clip_id": clip_idx,
+                **_clip_datetime_fields(source_start, window.start_frame, actual_end, fps),
+                "source_filename": input_path.name, "filename": filename,
                 "start_frame": window.start_frame, "end_frame": actual_end,
                 "source_start_frame": window.start_frame,
                 "source_end_frame": actual_end,
@@ -248,28 +256,39 @@ def export_event_clips(
                 "duration_frames": duration_frames,
                 "start_time_s": window.start_frame / fps, "end_time_s": actual_end / fps,
                 "duration_s": duration_frames / fps, "source_types": sorted(window.sources),
-                "track_ids": sorted(window.track_ids), "event_ids": sorted(window.event_ids),
+                "event_ids": sorted(window.event_ids),
                 "valid_track_count": len(window.track_ids & valid_track_ids),
                 "crossing_count": len(window.crossing_event_ids),
                 "aoi_event_count": len(window.aoi_event_ids),
+                "track_ids": sorted(window.track_ids),
             }
-            row.update(_clip_datetime_fields(source_start, window.start_frame, actual_end, fps))
             manifest.append(row)
     finally:
         cap.release()
     return manifest
 
 
-def write_clip_manifest(output_dir: Path, rows: Sequence[dict]) -> None:
-    json_path = output_dir / "event_clips_manifest.json"
-    csv_path = output_dir / "event_clips_manifest.csv"
-    json_path.write_text(json.dumps(list(rows), indent=2), encoding="utf-8")
-    fields = list(rows[0]) if rows else []
+def write_clip_manifest(output_dir: Path, rows: Sequence[dict], source_stem: str = "") -> None:
+    prefix = f"{source_stem}_" if source_stem else ""
+    json_path = output_dir / f"{prefix}event_clips_manifest.json"
+    csv_path = output_dir / f"{prefix}event_clips_manifest.csv"
+    normalized_rows = []
+    for row in rows:
+        ordered = {}
+        for key in ("clip_id", "start_date", "start_time", "end_date", "end_time"):
+            if key in row:
+                ordered[key] = row[key]
+        ordered.update({key: value for key, value in row.items() if key not in ordered and key != "track_ids"})
+        if "track_ids" in row:
+            ordered["track_ids"] = row["track_ids"]
+        normalized_rows.append(ordered)
+    json_path.write_text(json.dumps(normalized_rows, indent=2), encoding="utf-8")
+    fields = list(normalized_rows[0]) if normalized_rows else []
     # Semicolon-separated UTF-8 with BOM opens into columns directly in Excel
     # installations that use a comma as the decimal separator. Pipes keep list
     # values unambiguous without competing with the CSV delimiter.
     with csv_path.open("w", newline="", encoding="utf-8-sig") as file_obj:
         writer = csv.DictWriter(file_obj, fieldnames=fields, delimiter=";")
         writer.writeheader()
-        for row in rows:
+        for row in normalized_rows:
             writer.writerow({key: "|".join(map(str, value)) if isinstance(value, list) else value for key, value in row.items()})

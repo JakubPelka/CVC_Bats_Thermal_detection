@@ -884,6 +884,7 @@ class ThermalDetectorGUI(tk.Tk):
         self.bool_vars["continue_on_error"] = tk.BooleanVar(value=False)
         self.bool_vars["skip_existing"] = tk.BooleanVar(value=False)
         self.bool_vars["event_clips"] = tk.BooleanVar(value=True)
+        self.bool_vars["output_per_input_folder"] = tk.BooleanVar(value=False)
 
         for var in list(self.path_vars.values()) + list(self.num_vars.values()):
             var.trace_add("write", lambda *_: self._refresh_command_preview())
@@ -955,6 +956,9 @@ class ThermalDetectorGUI(tk.Tk):
         ttk.Checkbutton(run_options, text="Recursive folder scan", variable=self.bool_vars["recursive"]).pack(side=tk.LEFT, padx=(0, 16))
         ttk.Checkbutton(run_options, text="Continue on error", variable=self.bool_vars["continue_on_error"]).pack(side=tk.LEFT, padx=(0, 16))
         ttk.Checkbutton(run_options, text="Skip existing", variable=self.bool_vars["skip_existing"]).pack(side=tk.LEFT)
+        ttk.Checkbutton(
+            run_options, text="Folder per input", variable=self.bool_vars["output_per_input_folder"]
+        ).pack(side=tk.LEFT, padx=(16, 0))
         self._path_row(frame, "Output video (single file)", "output", self._browse_output, row=7)
         self._path_row(frame, "Track points CSV", "csv", self._browse_csv, row=8)
         self._path_row(frame, "Track summary CSV", "summary_csv", self._browse_summary_csv, row=9)
@@ -1245,7 +1249,7 @@ class ThermalDetectorGUI(tk.Tk):
         ttk.Checkbutton(parent, text="Export event clips after the main analysis", variable=self.bool_vars["event_clips"]).grid(
             row=0, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 10)
         )
-        ttk.Label(parent, text="Output folder override (empty = automatic per-video folder)").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(parent, text="Output folder override (empty = batch output folder)").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         ttk.Entry(parent, textvariable=self.path_vars["event_clips_dir"]).grid(row=1, column=1, sticky="ew", padx=4, pady=4)
         ttk.Button(parent, text="Browse", command=self._browse_event_clips_dir).grid(row=1, column=2, padx=4, pady=4)
         fields = [

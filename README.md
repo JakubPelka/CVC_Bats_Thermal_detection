@@ -168,8 +168,8 @@ thermal-blob-detector \
 The full analysis runs first. The input is then re-opened and clips are drawn
 from the stored track detections. Overlapping or nearby activity windows are
 merged, so simultaneous tracks produce one clip rather than duplicates. The
-directory also receives `event_clips_manifest.csv` and
-`event_clips_manifest.json`. Both manifests include `start_date`, `start_time`,
+directory also receives recording-prefixed event clip CSV and JSON manifests.
+Both manifests include `start_date`, `start_time`,
 `end_date`, and `end_time` for every clip. The source recording start is read
 from its `creation_time` metadata or, as a fallback, from an unambiguous date
 and time in the source filename. These fields remain empty when neither source
@@ -182,10 +182,10 @@ The default trigger is `valid_tracks`. Use `--event-clip-trigger` with
 analysis results. Event clips are disabled unless `--event-clips` is supplied,
 and are independent of the normal `--output` annotated video.
 
-When `--event-clips-dir` is omitted, clips use
-`outputs/<video_stem>/<video_stem>_event_clips/`. A custom directory is used
-exactly as supplied; avoid sharing one custom directory across a batch because
-clip filenames can collide.
+When `--event-clips-dir` is omitted, clips share the batch output directory.
+Every clip and manifest name is prefixed with the source recording name. Add
+`--output-per-input-folder` to place each recording's results in a separate
+subfolder instead.
 
 ### Annotation styles
 
@@ -249,8 +249,8 @@ Live preview and the full annotated video keep using
 
 ### Batch processing
 
-By default, batch results are written to an `outputs` folder beside the input
-recordings (or inside the folder passed with `--input-dir`). Use
+By default, batch results are written together in an `outputs` folder beside
+the input recordings (or inside the folder passed with `--input-dir`). Use
 `--batch-output-dir` only when a different location is wanted.
 
 Process an explicit list of videos:
@@ -276,8 +276,9 @@ thermal-blob-detector \
 ```
 
 Exactly one of `--input`, `--inputs`, or `--input-dir` is required. Batch mode
-creates `outputs/<video_stem>/` for each input, using stem-prefixed CSV, JSON,
-and optional annotated-video filenames. It also writes `batch_summary.csv` and
+uses stem-prefixed CSV, JSON, clip, and optional annotated-video filenames in
+one output folder. Pass `--output-per-input-folder` to create a separate
+`<video_stem>/` folder for each input. It also writes `batch_summary.csv` and
 `batch_summary.json` in the batch output root. Use `--skip-existing` to skip a
 video when its derived run summary exists, and `--continue-on-error` to record a
 failure and continue with later inputs. The normal annotated video remains
@@ -438,7 +439,8 @@ Existing videos are recorded as the initial baseline and are not analyzed.
 After installation, each new video is queued only after its size has remained
 unchanged for three minutes. One analysis runs at a time. Runtime input/output
 paths saved in the GUI preset are ignored: results are generated beside the
-source folder under `output-default/<video_name>/`. Directories beginning with
+source folder under `output-default/`, with the recording name in every result
+filename. Directories beginning with
 `output-` are never scanned as source folders.
 
 Useful service commands:

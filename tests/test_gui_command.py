@@ -24,7 +24,9 @@ class GuiCommandTests(unittest.TestCase):
                 "counting_config": "",
             }
             command = build_detector_command(
-                paths, {"threshold": "18"}, {"save_annotated_video": True},
+                paths, {"threshold": "18"}, {
+                    "save_annotated_video": True, "output_per_input_folder": True,
+                },
                 [("threshold", "--threshold", "float", "18", "Threshold", "")],
                 [], "thermal_blob_detector", Path,
             )
@@ -33,6 +35,7 @@ class GuiCommandTests(unittest.TestCase):
         self.assertIn("--threshold", command)
         self.assertEqual(command[command.index("--track-color-mode") + 1], "random")
         self.assertEqual(command[command.index("--track-fixed-color") + 1], "cyan")
+        self.assertIn("--output-per-input-folder", command)
 
 
 if __name__ == "__main__":

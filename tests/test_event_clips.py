@@ -8,7 +8,7 @@ import numpy as np
 from counting_models import CountingConfig
 from event_clips import (
     ClipWindow, _clip_datetime_fields, _datetime_from_filename,
-    build_clip_windows, merge_clip_windows, write_clip_manifest,
+    build_clip_filename, build_clip_windows, merge_clip_windows, write_clip_manifest,
 )
 from thermal_bat.config import ThermalBlobConfig
 from thermal_bat.visualization import color_for_track, draw_verification_event_clip_overlay
@@ -114,6 +114,29 @@ def test_clip_manifest_csv_is_excel_friendly_and_keeps_lists_in_one_cell(tmp_pat
     with (tmp_path / "event_clips_manifest.csv").open(newline="", encoding="utf-8-sig") as file_obj:
         parsed = list(csv.DictReader(file_obj, delimiter=";"))
     assert parsed == [{
-        "clip_id": "1", "track_ids": "12|34", "event_ids": "a|b",
-        "start_date": "2026-07-16", "start_time": "00:36:36",
+        "clip_id": "1", "start_date": "2026-07-16", "start_time": "00:36:36",
+        "event_ids": "a|b", "track_ids": "12|34",
     }]
+
+
+def test_clip_filename_contains_recording_name_and_clock_time():
+    filename = build_clip_filename(
+        Path("Camera night.mp4"), 3, ClipWindow(20, 40),
+        datetime(2026, 7, 16, 21, 4, 5), 10.0,
+    )
+    assert filename == "Camera_night_clip_0003_21-04-07.mp4"
+
+
+def test_track_ids_is_last_manifest_field_in_csv_and_json(tmp_path):
+    rows = [{
+        "clip_id": 1, "track_ids": [2], "filename": "clip.mp4",
+        "start_date": "2026-07-16", "start_time": "21:04:05",
+        "end_date": "2026-07-16", "end_time": "21:04:06",
+    }]
+    write_clip_manifest(tmp_path, rows, "camera")
+    with (tmp_path / "camera_event_clips_manifest.csv").open(encoding="utf-8-sig") as file_obj:
+        header = file_obj.readline().strip().split(";")
+    assert header[:5] == ["clip_id", "start_date", "start_time", "end_date", "end_time"]
+    assert header[-1] == "track_ids"
+    payload = __import__("json").loads((tmp_path / "camera_event_clips_manifest.json").read_text())
+    assert list(payload[0])[-1] == "track_ids"

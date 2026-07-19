@@ -63,7 +63,10 @@ def build_detector_command(
         "--verification-left-style", paths.get("verification_left_style", "bbox-trail").strip() or "bbox-trail",
         "--verification-right-style", paths.get("verification_right_style", "raw").strip() or "raw",
     ]
-    for key, flag in (("recursive", "--recursive"), ("continue_on_error", "--continue-on-error"), ("skip_existing", "--skip-existing")):
+    for key, flag in (
+        ("recursive", "--recursive"), ("continue_on_error", "--continue-on-error"),
+        ("skip_existing", "--skip-existing"), ("output_per_input_folder", "--output-per-input-folder"),
+    ):
         if boolean.get(key):
             command.append(flag)
 

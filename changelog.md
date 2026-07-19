@@ -11,6 +11,11 @@ This project follows a pragmatic pre-release workflow. The current goal is to st
 - Optional periodic background recalibration with configurable sampling and blending.
 - Analysis progress in the terminal and preview HUD with total frames, percentage,
   elapsed time, processing FPS and ETA.
+- Flat-by-default, recording-prefixed batch and event-clip exports, with an
+  optional per-input-folder switch.
+- Recording filename and absolute recording time in annotated event-clip HUDs.
+- Stable event-clip manifest ordering with date/time after `clip_id` and
+  `track_ids` retained as the final CSV/JSON field.
 
 ### Planned
 

@@ -23,6 +23,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--batch-output-dir", default="",
         help="Root output directory for batch results; empty creates an outputs folder beside the input recordings",
     )
+    parser.add_argument(
+        "--output-per-input-folder", action="store_true",
+        help="Put each recording's results in its own subfolder; by default all prefixed results share one output folder",
+    )
     parser.add_argument("--continue-on-error", action="store_true", help="Continue processing after a video fails")
     parser.add_argument("--skip-existing", action="store_true", help="Skip videos whose derived run summary already exists")
     parser.add_argument("--output", default="thermal_blob_valid_tracks.mp4", help="Output debug video path")

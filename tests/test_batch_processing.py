@@ -54,9 +54,18 @@ def test_safe_stem_and_per_video_output_paths(tmp_path):
     namespace = args()
     paths = build_output_paths(Path("Bat night #1.mp4"), tmp_path, namespace)
     assert safe_stem(Path("Bat night #1.mp4")) == "Bat_night__1"
+    assert paths["output_dir"] == tmp_path
+    assert paths["track_points_csv"] == tmp_path / "Bat_night__1_track_points.csv"
+    assert paths["event_clips_dir"] == tmp_path
+
+
+def test_optional_per_input_folder_keeps_results_together(tmp_path):
+    paths = build_output_paths(
+        Path("Bat night #1.mp4"), tmp_path, args(output_per_input_folder=True)
+    )
     assert paths["output_dir"] == tmp_path / "Bat_night__1"
     assert paths["track_points_csv"] == tmp_path / "Bat_night__1" / "Bat_night__1_track_points.csv"
-    assert paths["event_clips_dir"] == tmp_path / "Bat_night__1" / "Bat_night__1_event_clips"
+    assert paths["event_clips_dir"] == tmp_path / "Bat_night__1"
 
 
 def test_custom_event_clip_directory_is_used_exactly(tmp_path):

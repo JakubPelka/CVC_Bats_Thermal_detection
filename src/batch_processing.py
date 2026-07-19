@@ -43,7 +43,7 @@ def collect_input_videos(args: Any) -> List[Path]:
 
 def build_output_paths(input_path: Path, batch_output_dir: Path, args: Any) -> Dict[str, Any]:
     stem = safe_stem(input_path)
-    output_dir = batch_output_dir / stem
+    output_dir = batch_output_dir / stem if getattr(args, "output_per_input_folder", False) else batch_output_dir
     custom_clips = getattr(args, "event_clips_dir", "")
     return {
         "stem": stem,
@@ -56,7 +56,7 @@ def build_output_paths(input_path: Path, batch_output_dir: Path, args: Any) -> D
         "activity_csv": output_dir / f"{stem}_activity_by_time.csv" if args.activity_csv else None,
         "run_summary_json": output_dir / f"{stem}_run_summary.json" if args.run_summary_json else None,
         "counting_config_out": None,
-        "event_clips_dir": Path(custom_clips) if custom_clips else output_dir / f"{stem}_event_clips",
+        "event_clips_dir": Path(custom_clips) if custom_clips else output_dir,
     }
 
 

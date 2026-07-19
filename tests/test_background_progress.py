@@ -5,8 +5,11 @@ import inspect
 
 import numpy as np
 
-cv2 = types.SimpleNamespace(CAP_PROP_FRAME_COUNT=7, CAP_PROP_POS_FRAMES=1)
-sys.modules.setdefault("cv2", cv2)
+try:
+    import cv2
+except ImportError:
+    cv2 = types.SimpleNamespace(CAP_PROP_FRAME_COUNT=7, CAP_PROP_POS_FRAMES=1)
+    sys.modules.setdefault("cv2", cv2)
 
 from thermal_blob_detector import (
     BlobDetection,

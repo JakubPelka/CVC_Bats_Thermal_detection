@@ -16,7 +16,10 @@ from counting_stats import (
     write_crossings_csv, write_run_summary_json,
     write_track_summary_csv as write_counting_track_summary_csv,
 )
-from event_clips import build_clip_windows, export_event_clips, merge_clip_windows, write_clip_manifest
+from event_clips import (
+    build_clip_windows, export_event_clips, merge_clip_windows, video_start_datetime,
+    write_clip_manifest,
+)
 from .config import Rect, ThermalBlobConfig
 from .detector import ThermalBlobDetector
 from .exports import write_track_points_csv
@@ -86,7 +89,7 @@ def process_single_video(
         activity_csv_path = Path(args.activity_csv) if args.activity_csv else None
         run_summary_json_path = Path(args.run_summary_json) if args.run_summary_json else None
         counting_config_out_path = Path(args.counting_config_out) if args.counting_config_out else None
-        default_clip_dir = Path(args.batch_output_dir) / safe_stem(input_path) / f"{safe_stem(input_path)}_event_clips"
+        default_clip_dir = Path(args.batch_output_dir) if args.batch_output_dir else input_path.parent / "outputs"
         event_clips_dir = Path(args.event_clips_dir) if args.event_clips_dir else default_clip_dir
     else:
         output_path = output_paths.get("annotated_video")
@@ -368,21 +371,25 @@ def process_single_video(
         if not windows:
             print("No event clip windows found; no clips were written.")
         else:
+            source_start = video_start_datetime(input_path)
             manifest = export_event_clips(
                 input_path, event_clips_dir, windows, fps,
                 width * (2 if cfg.verification_mode else 1), height,
                 args.event_clip_fourcc,
                 lambda frame, frame_idx, window, clip_idx, clip_count: (
                     draw_verification_event_clip_overlay(
-                        frame, frame_idx, window, detector.tracks, counting_cfg, cfg, clip_idx, clip_count
+                        frame, frame_idx, window, detector.tracks, counting_cfg, cfg, clip_idx, clip_count,
+                        input_path.name, source_start, fps,
                     ) if cfg.verification_mode else draw_event_clip_overlay(
-                        frame, frame_idx, window, detector.tracks, counting_cfg, cfg, clip_idx, clip_count
+                        frame, frame_idx, window, detector.tracks, counting_cfg, cfg, clip_idx, clip_count,
+                        input_path.name, source_start, fps,
                     )
                 ),
                 {track.track_id for track in detector.valid_tracks()},
             )
-            write_clip_manifest(event_clips_dir, manifest)
-            print(f"Event clip manifest written: {event_clips_dir / 'event_clips_manifest.csv'}")
+            manifest_stem = safe_stem(input_path)
+            write_clip_manifest(event_clips_dir, manifest, manifest_stem)
+            print(f"Event clip manifest written: {event_clips_dir / f'{manifest_stem}_event_clips_manifest.csv'}")
 
     if output_path:
         print(f"Debug video written: {output_path}")
@@ -435,8 +442,6 @@ def process_batch(args: argparse.Namespace) -> List[dict]:
         batch_output_dir = input_paths[0].resolve().parent / "outputs"
     print(f"Batch output folder: {batch_output_dir}")
     print(f"Found {len(input_paths)} input videos.")
-    if args.event_clips_dir and len(input_paths) > 1:
-        print("WARNING: --event-clips-dir is shared in batch mode; clip filenames may collide between videos.")
     rows: List[dict] = []
     for index, input_path in enumerate(input_paths, start=1):
         print(f"[{index}/{len(input_paths)}] Processing: {input_path}")
