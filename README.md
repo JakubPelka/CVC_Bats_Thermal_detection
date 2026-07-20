@@ -169,6 +169,9 @@ The full analysis runs first. The input is then re-opened and clips are drawn
 from the stored track detections. Overlapping or nearby activity windows are
 merged, so simultaneous tracks produce one clip rather than duplicates. The
 directory also receives recording-prefixed event clip CSV and JSON manifests.
+The event-clip HUD shows the recording filename and, when reliable source
+metadata or an unambiguous filename timestamp is available, the absolute
+recording date and time for the current frame.
 Both manifests include `start_date`, `start_time`,
 `end_date`, and `end_time` for every clip. The source recording start is read
 from its `creation_time` metadata or, as a fallback, from an unambiguous date
